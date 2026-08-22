@@ -27,6 +27,8 @@ const copies = [
   "scripts",
   "server",
   "public",
+  "package.json",
+  "package-lock.json",
   "vite.config.ts",
   "tsconfig.json",
   "eslint.config.mjs",
@@ -37,6 +39,11 @@ for (const name of copies) {
   if (!existsSync(from)) continue;
   cpSync(from, join(process.cwd(), name), { recursive: true });
 }
+
+execSync("npm ci --include=dev", {
+  stdio: "inherit",
+  env: { ...process.env, NODE_ENV: "development" },
+});
 
 execSync("node scripts/with-app-env.mjs vite build && node scripts/migrate.mjs", {
   stdio: "inherit",
