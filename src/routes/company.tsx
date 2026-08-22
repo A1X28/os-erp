@@ -34,6 +34,9 @@ function CompanyPage() {
   const [bik, setBik] = useState(data.bik);
   const [vatEnabled, setVatEnabled] = useState(data.vatEnabled);
   const [vatRate, setVatRate] = useState(String(data.vatRate));
+  const [taxRate, setTaxRate] = useState(String(data.taxRate));
+  const [taxExtraRate, setTaxExtraRate] = useState(String(data.taxExtraRate));
+  const [taxThreshold, setTaxThreshold] = useState(String(data.taxThreshold));
 
   useEffect(() => {
     setName(data.name);
@@ -45,13 +48,28 @@ function CompanyPage() {
     setBik(data.bik);
     setVatEnabled(data.vatEnabled);
     setVatRate(String(data.vatRate));
+    setTaxRate(String(data.taxRate));
+    setTaxExtraRate(String(data.taxExtraRate));
+    setTaxThreshold(String(data.taxThreshold));
   }, [data]);
 
   const save = useMutation({
     mutationFn: () => {
       const rate = Number(vatRate);
+      const tRate = Number(taxRate);
+      const tExtra = Number(taxExtraRate);
+      const tThr = Number(taxThreshold);
       if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
         throw new Error("Ставка НДС — от 0 до 100");
+      }
+      if (!Number.isFinite(tRate) || tRate < 0 || tRate > 100) {
+        throw new Error("Налог с оборота — от 0 до 100");
+      }
+      if (!Number.isFinite(tExtra) || tExtra < 0 || tExtra > 100) {
+        throw new Error("Ставка сверх порога — от 0 до 100");
+      }
+      if (!Number.isFinite(tThr) || tThr < 0) {
+        throw new Error("Порог должен быть неотрицательным");
       }
       return saveCompany({
         data: {
@@ -64,6 +82,9 @@ function CompanyPage() {
           bik: bik.trim(),
           vatEnabled,
           vatRate: vatEnabled ? rate : 0,
+          taxRate: tRate,
+          taxExtraRate: tExtra,
+          taxThreshold: tThr,
         },
       });
     },
@@ -148,6 +169,43 @@ function CompanyPage() {
           ) : (
             <p className="text-sm text-muted-foreground">На бланках НДС не печатается</p>
           )}
+        </div>
+
+        <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-3">
+          <div className="sm:col-span-3">
+            <p className="text-sm font-medium">Налог с оборота</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Считается с оплат от клиентов за календарный год. На бланк не
+              попадает — это «сколько отложить».
+            </p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="co-tax">Ставка, %</Label>
+            <Input
+              id="co-tax"
+              inputMode="decimal"
+              value={taxRate}
+              onChange={(e) => setTaxRate(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="co-tax-extra">Сверх порога, %</Label>
+            <Input
+              id="co-tax-extra"
+              inputMode="decimal"
+              value={taxExtraRate}
+              onChange={(e) => setTaxExtraRate(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="co-tax-thr">Порог, ₸</Label>
+            <Input
+              id="co-tax-thr"
+              inputMode="decimal"
+              value={taxThreshold}
+              onChange={(e) => setTaxThreshold(e.target.value)}
+            />
+          </div>
         </div>
 
         <Button type="submit" disabled={save.isPending}>

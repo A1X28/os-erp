@@ -1,12 +1,21 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
-import { getReports } from "@/lib/erp/server";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { getReports, getTaxEstimate } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { money, pct, qtyFmt } from "@/lib/erp/format";
 import { PERIOD_LABEL } from "@/lib/erp/labels";
 import type { PeriodKey } from "@/lib/erp/types";
 import { cn } from "@/lib/utils";
+
+function currentYear() {
+  return Number(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Almaty",
+      year: "numeric",
+    }).format(new Date()),
+  );
+}
 
 export const Route = createFileRoute("/reports")({
   loader: () => orGuest(getReports({ data: { period: "month" } }), null),
@@ -18,13 +27,19 @@ const PERIODS: PeriodKey[] = ["month", "30d", "quarter"];
 function ReportsPage() {
   const initial = Route.useLoaderData();
   const [period, setPeriod] = useState<PeriodKey>("month");
+  const [year, setYear] = useState(currentYear);
   const q = useQuery({
     queryKey: ["reports", period],
     queryFn: () => getReports({ data: { period } }),
     initialData: period === "month" && initial ? initial : undefined,
     initialDataUpdatedAt: period === "month" && initial ? Date.now() : undefined,
   });
+  const tax = useQuery({
+    queryKey: ["tax", year],
+    queryFn: () => getTaxEstimate({ data: { year } }),
+  });
   const data = q.data;
+  const t = tax.data;
 
   const revTotal = data?.byProduct.reduce((s, r) => s + r.revenue, 0) ?? 0;
   const marginTotal = data?.byProduct.reduce((s, r) => s + r.margin, 0) ?? 0;
@@ -83,6 +98,74 @@ function ReportsPage() {
           </p>
         </div>
       </div>
+
+      <section className="mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg">Налог с оборота</h2>
+            <p className="text-xs text-muted-foreground">
+              С оплат от клиентов за год. Ставки — в{" "}
+              <Link to="/company" className="underline-offset-2 hover:underline">
+                профиле
+              </Link>
+              .
+            </p>
+          </div>
+          <div className="flex rounded-lg bg-muted p-1">
+            {[currentYear() - 1, currentYear()].map((y) => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => setYear(y)}
+                className={cn(
+                  "h-8 rounded-md px-3 text-xs font-medium",
+                  year === y
+                    ? "bg-card text-foreground shadow-[var(--shadow-border)]"
+                    : "text-muted-foreground",
+                )}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        </div>
+        {t ? (
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Оплаты
+              </p>
+              <p className="mt-1 font-display text-xl tabular-nums">{money(t.cash)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                {t.rate}% с оборота
+              </p>
+              <p className="mt-1 font-display text-xl tabular-nums">{money(t.main)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                {t.extraRate}% сверх {money(t.threshold)}
+              </p>
+              <p className="mt-1 font-display text-xl tabular-nums">{money(t.extra)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Отложить
+              </p>
+              <p className="mt-1 font-display text-xl tabular-nums">{money(t.total)}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Считаем…</p>
+        )}
+        {t && Math.abs(t.cash - t.shipped) > 1 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Отгрузки за год {money(t.shipped)} — налог берём с денег, не с
+            накладных.
+          </p>
+        ) : null}
+      </section>
 
       <section className="mt-4 overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
         <h2 className="px-4 pt-4 font-display text-lg">Продажи по товарам</h2>

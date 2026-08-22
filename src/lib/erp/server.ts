@@ -38,6 +38,7 @@ import type {
   PeriodMonth,
   PeriodBoard,
   CompanyProfile,
+  TaxEstimate,
 } from "./types";
 import { DOC_TYPES, DEFAULT_COMPANY } from "./types";
 
@@ -1798,6 +1799,9 @@ function mapCompany(r: Record<string, unknown> | undefined): CompanyProfile {
     bik: String(r.bik ?? ""),
     vatEnabled: Boolean(r.vat_enabled),
     vatRate: num(r.vat_rate),
+    taxRate: num(r.tax_rate ?? 6),
+    taxExtraRate: num(r.tax_extra_rate ?? 1),
+    taxThreshold: num(r.tax_threshold ?? 300000),
   };
 }
 
@@ -1806,7 +1810,8 @@ export const getCompany = createServerFn({ method: "GET" })
   .handler(async (): Promise<CompanyProfile> => {
     const sql = await withDb();
     const rows = await sql<Record<string, unknown>>`
-      select name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate
+      select name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,
+             tax_rate, tax_extra_rate, tax_threshold
       from company_profile where id = 1
     `;
     return mapCompany(rows[0]);
@@ -1825,17 +1830,22 @@ export const saveCompany = createServerFn({ method: "POST" })
       bik: z.string(),
       vatEnabled: z.boolean(),
       vatRate: z.number().min(0).max(100),
+      taxRate: z.number().min(0).max(100),
+      taxExtraRate: z.number().min(0).max(100),
+      taxThreshold: z.number().min(0),
     }),
   )
   .handler(async ({ data, context }): Promise<CompanyProfile> => {
     return withTx(async (sql) => {
       const rows = await sql<Record<string, unknown>>`
         insert into company_profile (
-          id, name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate
+          id, name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,
+          tax_rate, tax_extra_rate, tax_threshold
         ) values (
           1, ${data.name.trim()}, ${data.bin.trim()}, ${data.address.trim()},
           ${data.phone.trim()}, ${data.bank.trim()}, ${data.iik.trim()},
-          ${data.bik.trim()}, ${data.vatEnabled}, ${data.vatRate}
+          ${data.bik.trim()}, ${data.vatEnabled}, ${data.vatRate},
+          ${data.taxRate}, ${data.taxExtraRate}, ${data.taxThreshold}
         )
         on conflict (id) do update set
           name = excluded.name,
@@ -1846,9 +1856,61 @@ export const saveCompany = createServerFn({ method: "POST" })
           iik = excluded.iik,
           bik = excluded.bik,
           vat_enabled = excluded.vat_enabled,
-          vat_rate = excluded.vat_rate
-        returning name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate
+          vat_rate = excluded.vat_rate,
+          tax_rate = excluded.tax_rate,
+          tax_extra_rate = excluded.tax_extra_rate,
+          tax_threshold = excluded.tax_threshold
+        returning name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,
+                  tax_rate, tax_extra_rate, tax_threshold
       `;
       return mapCompany(rows[0]);
     }, context.userId);
+  });
+
+export const getTaxEstimate = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ year: z.number().int().min(2000).max(2100) }))
+  .handler(async ({ data }): Promise<TaxEstimate> => {
+    const sql = await withDb();
+    const year = data.year;
+    const from = `${year}-01-01`;
+    const to = `${year}-12-31`;
+    const [company, cashRows, shipRows] = await Promise.all([
+      sql<Record<string, unknown>>`
+        select tax_rate, tax_extra_rate, tax_threshold
+        from company_profile where id = 1
+      `,
+      sql<{ amount: unknown }>`
+        select coalesce(sum(amount), 0) as amount
+        from payments
+        where kind = 'in' and pay_date >= ${from} and pay_date <= ${to}
+      `,
+      sql<{ amount: unknown }>`
+        select coalesce(sum(l.amount), 0) as amount
+        from documents d
+        join document_lines l on l.document_id = d.id
+        where d.type = 'sale' and d.status = 'posted'
+          and d.doc_date >= ${from} and d.doc_date <= ${to}
+      `,
+    ]);
+    const rate = num(company[0]?.tax_rate ?? 6);
+    const extraRate = num(company[0]?.tax_extra_rate ?? 1);
+    const threshold = num(company[0]?.tax_threshold ?? 300000);
+    const cash = num(cashRows[0]?.amount);
+    const shipped = num(shipRows[0]?.amount);
+    const overThreshold = Math.max(0, cash - threshold);
+    const main = Math.round((cash * rate) / 100);
+    const extra = Math.round((overThreshold * extraRate) / 100);
+    return {
+      year,
+      cash,
+      shipped,
+      rate,
+      extraRate,
+      threshold,
+      main,
+      extra,
+      total: main + extra,
+      overThreshold,
+    };
   });

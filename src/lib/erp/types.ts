@@ -252,6 +252,9 @@ export type CompanyProfile = {
   bik: string;
   vatEnabled: boolean;
   vatRate: number;
+  taxRate: number;
+  taxExtraRate: number;
+  taxThreshold: number;
 };
 
 export const DEFAULT_COMPANY: CompanyProfile = {
@@ -264,4 +267,20 @@ export const DEFAULT_COMPANY: CompanyProfile = {
   bik: "",
   vatEnabled: true,
   vatRate: 12,
+  taxRate: 6,
+  taxExtraRate: 1,
+  taxThreshold: 300000,
+};
+
+export type TaxEstimate = {
+  year: number;
+  cash: number;
+  shipped: number;
+  rate: number;
+  extraRate: number;
+  threshold: number;
+  main: number;
+  extra: number;
+  total: number;
+  overThreshold: number;
 };
