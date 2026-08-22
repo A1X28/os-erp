@@ -4,6 +4,16 @@ export const COMPANY = "Севертрейд";
 export const APP_NAME = "Ось";
 export const APP_TAGLINE = "Учёт торговли и склада";
 
+export const COMPANY_PRINT = {
+  name: "Севертрейд",
+  bin: "",
+  address: "",
+  phone: "",
+  bank: "",
+  iik: "",
+  bik: "",
+};
+
 export const DOC_TYPE_LABEL: Record<DocType, string> = {
   po: "Заказ поставщику",
   bill: "Счёт поставщика",
@@ -13,6 +23,17 @@ export const DOC_TYPE_LABEL: Record<DocType, string> = {
   sale: "Отгрузка",
   transfer: "Перемещение",
   writeoff: "Списание",
+};
+
+export const PRINT_TITLE: Record<DocType, string> = {
+  po: "Заказ поставщику",
+  bill: "Счёт поставщика",
+  purchase: "Приходная накладная",
+  order: "Заказ покупателя",
+  invoice: "Счёт на оплату",
+  sale: "Накладная",
+  transfer: "Накладная на перемещение",
+  writeoff: "Акт списания",
 };
 
 export const DOC_TYPE_SHORT: Record<DocType, string> = {

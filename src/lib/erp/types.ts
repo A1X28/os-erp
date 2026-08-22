@@ -124,6 +124,9 @@ export type DocumentDetail = {
   fromWarehouseName: string | null;
   toWarehouseName: string | null;
   partnerName: string | null;
+  partnerInn: string | null;
+  partnerCity: string | null;
+  partnerPhone: string | null;
   comment: string;
   postedAt: string | null;
   sourceId: number | null;

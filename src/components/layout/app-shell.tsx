@@ -218,7 +218,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const { user, isPending } = useCurrentUserState();
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname.includes("/print")) {
     return <>{children}</>;
   }
 

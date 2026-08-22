@@ -134,3 +134,25 @@
     scroll-behavior: auto !important;
   }
 }
+
+@media print {
+  :root {
+    --os-bg: #ffffff;
+    --os-fg: #111111;
+    --os-card: #ffffff;
+  }
+
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+}

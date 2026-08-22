@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Printer, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -722,6 +722,20 @@ export function DocumentForm({
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            {initial ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void navigate({
+                    to: "/print/$id",
+                    params: { id: String(initial.id) },
+                  })
+                }
+              >
+                <Printer className="size-4" />
+                Печать
+              </Button>
+            ) : null}
             {canPay ? (
               <Button variant="outline" onClick={() => setPayOpen(true)}>
                 {SUPPLIER_DOC.includes(type) ? "Оплатить поставщику" : "Принять оплату"}

@@ -24,6 +24,7 @@ import { Route as CatalogIdRouteImport } from './routes/catalog.$id'
 import { Route as DocumentsIndexRouteImport } from './routes/documents.index'
 import { Route as DocumentsIdRouteImport } from './routes/documents.$id'
 import { Route as DocumentsNewRouteImport } from './routes/documents.new'
+import { Route as PrintIdRouteImport } from './routes/print.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronPeriodsRouteImport } from './routes/api/cron/periods'
 
@@ -102,6 +103,11 @@ const DocumentsNewRoute = DocumentsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => DocumentsRoute,
 } as any)
+const PrintIdRoute = PrintIdRouteImport.update({
+  id: '/print/$id',
+  path: '/print/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -127,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
   '/documents/new': typeof DocumentsNewRoute
+  '/print/$id': typeof PrintIdRoute
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
   '/documents/new': typeof DocumentsNewRoute
+  '/print/$id': typeof PrintIdRoute
   '/catalog': typeof CatalogIndexRoute
   '/documents': typeof DocumentsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -164,6 +172,7 @@ export interface FileRoutesById {
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
   '/documents/new': typeof DocumentsNewRoute
+  '/print/$id': typeof PrintIdRoute
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
     | '/catalog/$id'
     | '/documents/$id'
     | '/documents/new'
+    | '/print/$id'
     | '/catalog/'
     | '/documents/'
     | '/api/auth/$'
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
     | '/catalog/$id'
     | '/documents/$id'
     | '/documents/new'
+    | '/print/$id'
     | '/catalog'
     | '/documents'
     | '/api/auth/$'
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '/catalog/$id'
     | '/documents/$id'
     | '/documents/new'
+    | '/print/$id'
     | '/catalog/'
     | '/documents/'
     | '/api/auth/$'
@@ -238,6 +250,7 @@ export interface RootRouteChildren {
   ReportsRoute: typeof ReportsRoute
   StaffRoute: typeof StaffRoute
   StockRoute: typeof StockRoute
+  PrintIdRoute: typeof PrintIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronPeriodsRoute: typeof ApiCronPeriodsRoute
 }
@@ -349,6 +362,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocumentsNewRouteImport
       parentRoute: typeof DocumentsRoute
     }
+    '/print/$id': {
+      id: '/print/$id'
+      path: '/print/$id'
+      fullPath: '/print/$id'
+      preLoaderRoute: typeof PrintIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -406,6 +426,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReportsRoute: ReportsRoute,
   StaffRoute: StaffRoute,
   StockRoute: StockRoute,
+  PrintIdRoute: PrintIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronPeriodsRoute: ApiCronPeriodsRoute,
 }
