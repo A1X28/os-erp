@@ -10,7 +10,8 @@ export function stockDocs(type: string): boolean {
     type === "writeoff" ||
     type === "transfer" ||
     type === "sale_return" ||
-    type === "purchase_return"
+    type === "purchase_return" ||
+    type === "inventory"
   );
 }
 

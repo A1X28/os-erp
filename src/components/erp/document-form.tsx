@@ -43,6 +43,7 @@ type DraftLine = {
   name: string;
   unit: string;
   qty: number;
+  expectedQty: number | null;
   price: number;
 };
 
@@ -62,10 +63,12 @@ function ProductPicker({
   products,
   onPick,
   forShipment,
+  inventory,
 }: {
   products: Product[];
   onPick: (p: Product) => void;
   forShipment: boolean;
+  inventory?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -114,7 +117,9 @@ function ProductPicker({
                   <span className="block text-sm font-medium">{p.name}</span>
                   <span className="text-xs text-muted-foreground">
                     {p.sku} · {p.unit}
-                    {forShipment
+                    {inventory
+                      ? ` · учёт ${qtyFmt(p.stock)}`
+                      : forShipment
                       ? ` · доступно ${qtyFmt(p.available)}`
                       : ` · можно продать ${qtyFmt(p.available + p.incoming)}`}
                     {p.incoming > 0 ? ` · ожидается ${qtyFmt(p.incoming)}` : ""}
@@ -149,6 +154,7 @@ export function DocumentForm({
   const locked = initial?.status === "posted";
 
   const [type, setType] = useState<DocType>(initial?.type ?? defaultType);
+  const isInventory = type === "inventory";
   const [docDate, setDocDate] = useState(initial?.docDate ?? todayIso());
   const [warehouseId, setWarehouseId] = useState<string>(
     initial?.warehouseId ? String(initial.warehouseId) : "",
@@ -174,6 +180,7 @@ export function DocumentForm({
         name: l.name,
         unit: l.unit,
         qty: l.qty,
+        expectedQty: l.expectedQty,
         price: l.price,
       })) ?? [],
   );
@@ -248,6 +255,7 @@ export function DocumentForm({
             productId: l.productId,
             qty: l.qty,
             price: l.price,
+            expectedQty: type === "inventory" ? l.expectedQty : null,
           })),
         },
       }).then(async (res) => {
@@ -258,7 +266,11 @@ export function DocumentForm({
       invalidateAll();
       toast.success(
         res.posted
-          ? type === "sale" || type === "purchase" || type === "writeoff" || type === "transfer"
+          ? type === "sale" ||
+            type === "purchase" ||
+            type === "writeoff" ||
+            type === "transfer" ||
+            type === "inventory"
             ? "Документ проведён, остатки обновлены"
             : "Документ проведён"
           : "Черновик сохранён",
@@ -434,6 +446,8 @@ export function DocumentForm({
               disabled={locked}
             />
           </div>
+          {isInventory ? null : (
+          <>
           <div className="grid gap-1.5">
             <Label>Валюта</Label>
             <Select
@@ -468,6 +482,8 @@ export function DocumentForm({
               />
             </div>
           ) : null}
+          </>
+          )}
           {type === "transfer" ? (
             <>
               <div className="grid gap-1.5">
@@ -571,26 +587,67 @@ export function DocumentForm({
 
       <div className="mt-4 overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <h2 className="font-display text-lg">Строки</h2>
+          <h2 className="font-display text-lg">
+            {isInventory ? "Пересчёт" : "Строки"}
+          </h2>
           {!locked ? (
-            <ProductPicker
-              products={products.data ?? []}
-              forShipment={type === "sale" || type === "writeoff"}
-              onPick={(p) =>
-                setLines((prev) => [
-                  ...prev,
-                  {
-                    key: `${p.id}-${Date.now()}`,
-                    productId: p.id,
-                    sku: p.sku,
-                    name: p.name,
-                    unit: p.unit,
-                    qty: 1,
-                    price: defaultPrice(type, p),
-                  },
-                ])
-              }
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              {isInventory ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const stocked = (products.data ?? []).filter((p) => p.stock !== 0);
+                    if (stocked.length === 0) {
+                      toast.error("На складе пусто — добавьте строки вручную");
+                      return;
+                    }
+                    setLines(
+                      stocked.map((p) => ({
+                        key: `${p.id}-${Date.now()}`,
+                        productId: p.id,
+                        sku: p.sku,
+                        name: p.name,
+                        unit: p.unit,
+                        qty: p.stock,
+                        expectedQty: p.stock,
+                        price: p.purchasePrice,
+                      })),
+                    );
+                    toast.success(`Заполнено ${stocked.length}`);
+                  }}
+                >
+                  Заполнить со склада
+                </Button>
+              ) : null}
+              <ProductPicker
+                products={products.data ?? []}
+                forShipment={type === "sale" || type === "writeoff"}
+                inventory={isInventory}
+                onPick={(p) =>
+                  setLines((prev) => {
+                    if (isInventory && prev.some((l) => l.productId === p.id)) {
+                      toast.error("Этот товар уже в акте");
+                      return prev;
+                    }
+                    return [
+                      ...prev,
+                      {
+                        key: `${p.id}-${Date.now()}`,
+                        productId: p.id,
+                        sku: p.sku,
+                        name: p.name,
+                        unit: p.unit,
+                        qty: isInventory ? p.stock : 1,
+                        expectedQty: isInventory ? p.stock : null,
+                        price: defaultPrice(type, p),
+                      },
+                    ];
+                  })
+                }
+              />
+            </div>
           ) : null}
         </div>
 
@@ -599,9 +656,20 @@ export function DocumentForm({
             <thead className="border-y border-border bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-2 font-medium">Товар</th>
-                <th className="px-3 py-2 font-medium">Кол-во</th>
-                <th className="px-3 py-2 font-medium">Цена</th>
-                <th className="px-3 py-2 text-right font-medium">Сумма</th>
+                {isInventory ? (
+                  <>
+                    <th className="px-3 py-2 font-medium">Учёт</th>
+                    <th className="px-3 py-2 font-medium">Факт</th>
+                    <th className="px-3 py-2 text-right font-medium">Разница</th>
+                    <th className="px-3 py-2 font-medium">Себест. излишка</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="px-3 py-2 font-medium">Кол-во</th>
+                    <th className="px-3 py-2 font-medium">Цена</th>
+                    <th className="px-3 py-2 text-right font-medium">Сумма</th>
+                  </>
+                )}
                 <th className="w-10" />
               </tr>
             </thead>
@@ -615,6 +683,12 @@ export function DocumentForm({
                     </div>
                   </td>
                   <td className="px-3 py-2">
+                    {isInventory ? (
+                      <span className="tabular-nums text-muted-foreground">
+                        {qtyFmt(line.expectedQty ?? 0)}
+                      </span>
+                    ) : null}
+                    {isInventory ? null : (
                     <Input
                       type="number"
                       min={0.001}
@@ -632,20 +706,23 @@ export function DocumentForm({
                         )
                       }
                     />
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <Input
                       type="number"
-                      min={0}
+                      min={isInventory ? 0 : 0.001}
                       step="any"
-                      value={line.price}
+                      value={isInventory ? line.qty : line.price}
                       disabled={locked}
-                      className="h-9 w-32 tabular-nums"
+                      className="h-9 w-24 tabular-nums"
                       onChange={(e) =>
                         setLines((prev) =>
                           prev.map((l) =>
                             l.key === line.key
-                              ? { ...l, price: num(e.target.value) }
+                              ? isInventory
+                                ? { ...l, qty: num(e.target.value) }
+                                : { ...l, price: num(e.target.value) }
                               : l,
                           ),
                         )
@@ -653,8 +730,44 @@ export function DocumentForm({
                     />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {money(line.qty * line.price, { currency })}
+                    {isInventory ? (
+                      <span
+                        className={cn(
+                          (line.qty - (line.expectedQty ?? 0)) > 0.0001
+                            ? "text-success"
+                            : (line.qty - (line.expectedQty ?? 0)) < -0.0001
+                              ? "text-destructive"
+                              : "text-muted-foreground",
+                        )}
+                      >
+                        {line.qty - (line.expectedQty ?? 0) > 0 ? "+" : ""}
+                        {qtyFmt(line.qty - (line.expectedQty ?? 0))}
+                      </span>
+                    ) : (
+                      money(line.qty * line.price, { currency })
+                    )}
                   </td>
+                  {isInventory ? (
+                    <td className="px-3 py-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={line.price}
+                        disabled={locked}
+                        className="h-9 w-28 tabular-nums"
+                        onChange={(e) =>
+                          setLines((prev) =>
+                            prev.map((l) =>
+                              l.key === line.key
+                                ? { ...l, price: num(e.target.value) }
+                                : l,
+                            ),
+                          )
+                        }
+                      />
+                    </td>
+                  ) : null}
                   <td className="px-2 py-2">
                     {!locked ? (
                       <Button
@@ -675,7 +788,7 @@ export function DocumentForm({
               {lines.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={isInventory ? 6 : 5}
                     className="px-4 py-10 text-center text-sm text-muted-foreground"
                   >
                     Добавьте товары — поиск по названию или артикулу
@@ -774,6 +887,17 @@ export function DocumentForm({
       <div className="sticky bottom-16 z-20 mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)] lg:bottom-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
+            {isInventory ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Проведение выровняет остаток до факта. Товаров нет в акте — не трогаем.
+                </p>
+                <p className="mt-1 font-display text-2xl tabular-nums tracking-tight">
+                  {lines.filter((l) => Math.abs(l.qty - (l.expectedQty ?? 0)) > 0.0001).length} расхожд.
+                </p>
+              </>
+            ) : (
+            <>
             {profile.vatEnabled ? (
               <>
                 <p className="text-xs text-muted-foreground">в т.ч. НДС {profile.vatRate}%</p>
@@ -797,6 +921,8 @@ export function DocumentForm({
                 {initial.dueAmount > 0 ? ` · долг ${money(initial.dueAmount, { currency })}` : " · закрыто"}
               </p>
             ) : null}
+            </>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {initial ? (

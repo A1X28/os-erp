@@ -9,6 +9,7 @@ export const DOC_TYPES = [
   "writeoff",
   "sale_return",
   "purchase_return",
+  "inventory",
 ] as const;
 
 export type DocType = (typeof DOC_TYPES)[number];
@@ -128,6 +129,7 @@ export type DocumentLine = {
   name: string;
   unit: string;
   qty: number;
+  expectedQty: number | null;
   price: number;
   amount: number;
 };

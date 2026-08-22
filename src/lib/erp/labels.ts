@@ -25,6 +25,7 @@ export const DOC_TYPE_LABEL: Record<DocType, string> = {
   writeoff: "Списание",
   sale_return: "Возврат от покупателя",
   purchase_return: "Возврат поставщику",
+  inventory: "Инвентаризация",
 };
 
 export const PRINT_TITLE: Record<DocType, string> = {
@@ -38,6 +39,7 @@ export const PRINT_TITLE: Record<DocType, string> = {
   writeoff: "Акт списания",
   sale_return: "Возвратная накладная",
   purchase_return: "Возврат поставщику",
+  inventory: "Акт инвентаризации",
 };
 
 export const DOC_TYPE_SHORT: Record<DocType, string> = {
@@ -51,6 +53,7 @@ export const DOC_TYPE_SHORT: Record<DocType, string> = {
   writeoff: "СПС",
   sale_return: "ВОЗ",
   purchase_return: "ВПС",
+  inventory: "ИНВ",
 };
 
 export const STATUS_LABEL: Record<DocStatus, string> = {

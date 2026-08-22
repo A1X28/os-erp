@@ -27,7 +27,7 @@ function oursLine(ours: CompanyProfile) {
   });
 }
 
-const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff", "sale_return", "purchase_return"];
+const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff", "sale_return", "purchase_return", "inventory"];
 const BILL: DocType[] = ["invoice", "bill"];
 
 export function DocumentPrint({
@@ -130,9 +130,19 @@ export function DocumentPrint({
             <th className="w-8 py-2 font-medium">№</th>
             <th className="py-2 font-medium">Товар</th>
             <th className="w-16 py-2 font-medium">Ед.</th>
-            <th className="w-20 py-2 text-right font-medium">Кол-во</th>
-            <th className="w-24 py-2 text-right font-medium">Цена</th>
-            <th className="w-28 py-2 text-right font-medium">Сумма</th>
+            {doc.type === "inventory" ? (
+              <>
+                <th className="w-20 py-2 text-right font-medium">Учёт</th>
+                <th className="w-20 py-2 text-right font-medium">Факт</th>
+                <th className="w-20 py-2 text-right font-medium">Разница</th>
+              </>
+            ) : (
+              <>
+                <th className="w-20 py-2 text-right font-medium">Кол-во</th>
+                <th className="w-24 py-2 text-right font-medium">Цена</th>
+                <th className="w-28 py-2 text-right font-medium">Сумма</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -144,9 +154,22 @@ export function DocumentPrint({
                 <span className="ml-2 text-xs text-neutral-500">{line.sku}</span>
               </td>
               <td className="py-1.5">{line.unit}</td>
-              <td className="py-1.5 text-right tabular-nums">{qtyFmt(line.qty)}</td>
-              <td className="py-1.5 text-right tabular-nums">{money(line.price, { currency: cur })}</td>
-              <td className="py-1.5 text-right tabular-nums">{money(line.amount, { currency: cur })}</td>
+              {doc.type === "inventory" ? (
+                <>
+                  <td className="py-1.5 text-right tabular-nums">{qtyFmt(line.expectedQty ?? 0)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{qtyFmt(line.qty)}</td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {line.qty - (line.expectedQty ?? 0) > 0 ? "+" : ""}
+                    {qtyFmt(line.qty - (line.expectedQty ?? 0))}
+                  </td>
+                </>
+              ) : (
+                <>
+                  <td className="py-1.5 text-right tabular-nums">{qtyFmt(line.qty)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{money(line.price, { currency: cur })}</td>
+                  <td className="py-1.5 text-right tabular-nums">{money(line.amount, { currency: cur })}</td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>

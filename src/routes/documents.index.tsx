@@ -29,6 +29,7 @@ const TYPES: Array<"all" | DocType> = [
   "sale_return",
   "transfer",
   "writeoff",
+  "inventory",
 ];
 
 function DocumentsPage() {

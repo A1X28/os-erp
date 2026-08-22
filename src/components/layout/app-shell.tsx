@@ -75,6 +75,7 @@ const CREATE: { type: DocType; hint: string }[] = [
   { type: "purchase_return", hint: "Вернуть товар поставщику" },
   { type: "transfer", hint: "Между складами" },
   { type: "writeoff", hint: "Бой, порча, недостача" },
+  { type: "inventory", hint: "Пересчёт. Выровняет остаток до факта" },
 ];
 
 const MOBILE_TABS = [
@@ -210,7 +211,7 @@ function CreateMenu({ compact }: { compact?: boolean }) {
           ),
         )}
         <DropdownMenuSeparator />
-        {CREATE.filter((i) => i.type === "transfer" || i.type === "writeoff").map((item) => (
+        {CREATE.filter((i) => i.type === "transfer" || i.type === "writeoff" || i.type === "inventory").map((item) => (
           <DropdownMenuItem key={item.type} asChild>
             <Link to="/documents/new" search={{ type: item.type }}>
               <span className="flex flex-col">

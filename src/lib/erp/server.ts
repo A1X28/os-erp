@@ -764,7 +764,7 @@ export const getDocument = createServerFn({ method: "GET" })
       where d.id = ${data.id}
     `,
       sql<Record<string, unknown>>`
-      select l.id, l.product_id, l.qty, l.price, l.amount,
+      select l.id, l.product_id, l.qty, l.expected_qty, l.price, l.amount,
              p.sku, p.name, p.unit
       from document_lines l
       join products p on p.id = l.product_id
@@ -806,6 +806,7 @@ export const getDocument = createServerFn({ method: "GET" })
       name: String(r.name),
       unit: String(r.unit),
       qty: num(r.qty),
+      expectedQty: r.expected_qty == null ? null : num(r.expected_qty),
       price: num(r.price),
       amount: num(r.amount),
     }));
@@ -868,8 +869,9 @@ export const getDocument = createServerFn({ method: "GET" })
 
 const lineInput = z.object({
   productId: z.number(),
-  qty: z.number().positive(),
+  qty: z.number().min(0),
   price: z.number().nonnegative(),
+  expectedQty: z.number().min(0).nullable().optional(),
 });
 
 const documentInput = z.object({
@@ -912,6 +914,15 @@ export const saveDocument = createServerFn({ method: "POST" })
     } else if (!data.warehouseId) {
       throw new Error("Укажите склад");
     }
+    if (data.type === "inventory") {
+      const seen = new Set<number>();
+      for (const line of data.lines) {
+        if (seen.has(line.productId)) {
+          throw new Error("В инвентаризации товар только один раз");
+        }
+        seen.add(line.productId);
+      }
+    }
 
     let id = data.id;
     if (id) {
@@ -953,10 +964,16 @@ export const saveDocument = createServerFn({ method: "POST" })
     }
 
     for (const line of data.lines) {
+      if (data.type !== "inventory" && line.qty <= 0) {
+        throw new Error("Количество должно быть больше нуля");
+      }
       const amount = Math.round(line.qty * line.price * 100) / 100;
       await sql`
-        insert into document_lines (document_id, product_id, qty, price, amount)
-        values (${id}, ${line.productId}, ${line.qty}, ${line.price}, ${amount})
+        insert into document_lines (document_id, product_id, qty, expected_qty, price, amount)
+        values (
+          ${id}, ${line.productId}, ${line.qty},
+          ${line.expectedQty ?? null}, ${line.price}, ${amount}
+        )
       `;
     }
     return { id: id! };
@@ -1054,6 +1071,14 @@ export const postDocument = createServerFn({ method: "POST" })
       }
     }
 
+    if (type === "inventory") {
+      if (!warehouseId) throw new Error("Не указан склад");
+      await lockStockKeys(
+        sql,
+        lines.map((line) => [line.product_id, warehouseId] as [number, number]),
+      );
+    }
+
     await sql`
       update documents set status = 'posted', posted_at = now() where id = ${data.id}
     `;
@@ -1112,7 +1137,7 @@ export const unpostDocument = createServerFn({ method: "POST" })
       where l.document_id = ${data.id}
     `;
 
-    if (type === "purchase" || type === "sale" || type === "writeoff") {
+    if (type === "purchase" || type === "sale" || type === "writeoff" || type === "inventory") {
       const warehouseId = num(d.warehouse_id);
       await lockStockKeys(
         sql,
@@ -1133,6 +1158,29 @@ export const unpostDocument = createServerFn({ method: "POST" })
 
     async function stockAt(productId: number, whId: number): Promise<number> {
       return onHand(sql, productId, whId);
+    }
+
+    if (type === "inventory") {
+      const warehouseId = num(d.warehouse_id);
+      const surplus = await sql<{ product_id: number; name: string; qty: unknown }>`
+        select m.product_id, p.name, m.qty
+        from stock_moves m
+        join products p on p.id = m.product_id
+        where m.document_id = ${data.id} and m.qty > 0
+      `;
+      const missing: string[] = [];
+      for (const row of surplus) {
+        const have = await stockAt(row.product_id, warehouseId);
+        const qty = num(row.qty);
+        if (have < qty) {
+          missing.push(`${row.name} (на складе ${have}, излишек ${qty})`);
+        }
+      }
+      if (missing.length) {
+        throw new Error(
+          `Нельзя отменить инвентаризацию: излишек уже израсходован. ${missing.join("; ")}`,
+        );
+      }
     }
 
     if (type === "purchase") {
@@ -1678,7 +1726,7 @@ export const followOn = createServerFn({ method: "POST" })
       `;
       if (draft[0]) return { id: draft[0].id };
     }
-    if (toType !== "transfer" && toType !== "writeoff" && !src.counterparty_id) {
+    if (toType !== "transfer" && toType !== "writeoff" && toType !== "inventory" && !src.counterparty_id) {
       throw new Error("Укажите контрагента");
     }
     if (toType !== "transfer" && !src.warehouse_id) {
