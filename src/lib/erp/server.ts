@@ -35,6 +35,7 @@ import type {
   StockRow,
   TransitRow,
   Warehouse,
+  PeriodMonth,
 } from "./types";
 import { DOC_TYPES } from "./types";
 
@@ -1581,4 +1582,146 @@ export const shipOrder = createServerFn({ method: "POST" })
   .inputValidator(z.object({ id: z.number() }))
   .handler(async ({ data }): Promise<{ id: number }> => {
     return followOn({ data: { id: data.id, toType: "sale" } });
+  });
+
+const MONTHS_RU = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
+];
+
+function nextMonth(year: number, month: number): { year: number; month: number } {
+  return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+}
+
+function prevMonth(year: number, month: number): { year: number; month: number } {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
+export const listPeriods = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<PeriodMonth[]> => {
+    const sql = await withDb();
+    const closed = await sql<{
+      year: number;
+      month: number;
+      closed_at: string;
+      closed_email: string;
+    }>`
+      select year, month, closed_at::text, closed_email
+      from closed_periods
+      order by year desc, month desc
+    `;
+    const byKey = new Map(
+      closed.map((r) => [`${r.year}-${r.month}`, r] as const),
+    );
+    const latest = closed[0] ?? null;
+    const now = new Date();
+    const cy = now.getFullYear();
+    const cm = now.getMonth() + 1;
+    const next = latest ? nextMonth(latest.year, latest.month) : null;
+    const rows: PeriodMonth[] = [];
+    let y = cy;
+    let m = cm;
+    for (let i = 0; i < 18; i += 1) {
+      const row = byKey.get(`${y}-${m}`);
+      const isClosed = Boolean(row);
+      const isLatest =
+        latest != null && latest.year === y && latest.month === m;
+      const isFuture = y > cy || (y === cy && m > cm);
+      const canClose =
+        !isClosed &&
+        !isFuture &&
+        (next ? next.year === y && next.month === m : true);
+      rows.push({
+        year: y,
+        month: m,
+        label: `${MONTHS_RU[m - 1]} ${y}`,
+        closed: isClosed,
+        closedAt: row ? String(row.closed_at).slice(0, 10) : null,
+        closedEmail: row?.closed_email ? String(row.closed_email) : null,
+        canClose,
+        canReopen: isLatest,
+      });
+      const p = prevMonth(y, m);
+      y = p.year;
+      m = p.month;
+    }
+    return rows;
+  });
+
+export const closePeriod = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ year: z.number(), month: z.number() }))
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      const year = data.year;
+      const month = data.month;
+      if (month < 1 || month > 12) throw new Error("Некорректный месяц");
+      const now = new Date();
+      if (year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth() + 1)) {
+        throw new Error("Нельзя закрыть будущий месяц");
+      }
+      const latest = await sql<{ year: number; month: number }>`
+        select year, month from closed_periods
+        order by year desc, month desc limit 1
+        for update
+      `;
+      if (latest[0]) {
+        const n = nextMonth(latest[0].year, latest[0].month);
+        if (n.year !== year || n.month !== month) {
+          throw new Error(
+            `Сначала закройте ${MONTHS_RU[n.month - 1]} ${n.year}`,
+          );
+        }
+      }
+      await sql`
+        insert into closed_periods (year, month, closed_by, closed_email)
+        values (
+          ${year}, ${month}, ${context.userId},
+          coalesce((select email from "user" where id = ${context.userId}), '')
+        )
+      `;
+      await sql.query(
+        `insert into ledger_log (actor_id, actor_email, action, payload)
+         values ($1, coalesce((select email from "user" where id = $1), ''), 'period_close', $2::jsonb)`,
+        [context.userId, JSON.stringify({ year, month })],
+      );
+      return { ok: true as const };
+    }, context.userId);
+  });
+
+export const reopenPeriod = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ year: z.number(), month: z.number() }))
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      const latest = await sql<{ year: number; month: number }>`
+        select year, month from closed_periods
+        order by year desc, month desc limit 1
+        for update
+      `;
+      if (!latest[0] || latest[0].year !== data.year || latest[0].month !== data.month) {
+        throw new Error("Открыть можно только последний закрытый месяц");
+      }
+      await sql`
+        delete from closed_periods
+        where year = ${data.year} and month = ${data.month}
+      `;
+      await sql.query(
+        `insert into ledger_log (actor_id, actor_email, action, payload)
+         values ($1, coalesce((select email from "user" where id = $1), ''), 'period_reopen', $2::jsonb)`,
+        [context.userId, JSON.stringify({ year: data.year, month: data.month })],
+      );
+      return { ok: true as const };
+    }, context.userId);
   });

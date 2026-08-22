@@ -219,3 +219,14 @@ export type ReportData = {
   }[];
   stockValue: { category: string; value: number; qty: number }[];
 };
+
+export type PeriodMonth = {
+  year: number;
+  month: number;
+  label: string;
+  closed: boolean;
+  closedAt: string | null;
+  closedEmail: string | null;
+  canClose: boolean;
+  canReopen: boolean;
+};

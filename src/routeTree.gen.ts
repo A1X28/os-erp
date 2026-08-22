@@ -13,8 +13,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CatalogRouteImport } from './routes/catalog'
 import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as MoneyRouteImport } from './routes/money'
 import { Route as PartnersRouteImport } from './routes/partners'
+import { Route as PeriodsRouteImport } from './routes/periods'
 import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as StaffRouteImport } from './routes/staff'
 import { Route as StockRouteImport } from './routes/stock'
 import { Route as CatalogIndexRouteImport } from './routes/catalog.index'
 import { Route as CatalogIdRouteImport } from './routes/catalog.$id'
@@ -43,14 +46,29 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MoneyRoute = MoneyRouteImport.update({
+  id: '/money',
+  path: '/money',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PartnersRoute = PartnersRouteImport.update({
   id: '/partners',
   path: '/partners',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PeriodsRoute = PeriodsRouteImport.update({
+  id: '/periods',
+  path: '/periods',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReportsRoute = ReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StaffRoute = StaffRouteImport.update({
+  id: '/staff',
+  path: '/staff',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StockRoute = StockRouteImport.update({
@@ -94,8 +112,11 @@ export interface FileRoutesByFullPath {
   '/catalog': typeof CatalogRouteWithChildren
   '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
+  '/money': typeof MoneyRoute
   '/partners': typeof PartnersRoute
+  '/periods': typeof PeriodsRoute
   '/reports': typeof ReportsRoute
+  '/staff': typeof StaffRoute
   '/stock': typeof StockRoute
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
@@ -107,8 +128,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/money': typeof MoneyRoute
   '/partners': typeof PartnersRoute
+  '/periods': typeof PeriodsRoute
   '/reports': typeof ReportsRoute
+  '/staff': typeof StaffRoute
   '/stock': typeof StockRoute
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
@@ -123,8 +147,11 @@ export interface FileRoutesById {
   '/catalog': typeof CatalogRouteWithChildren
   '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
+  '/money': typeof MoneyRoute
   '/partners': typeof PartnersRoute
+  '/periods': typeof PeriodsRoute
   '/reports': typeof ReportsRoute
+  '/staff': typeof StaffRoute
   '/stock': typeof StockRoute
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
@@ -140,8 +167,11 @@ export interface FileRouteTypes {
     | '/catalog'
     | '/documents'
     | '/login'
+    | '/money'
     | '/partners'
+    | '/periods'
     | '/reports'
+    | '/staff'
     | '/stock'
     | '/catalog/$id'
     | '/documents/$id'
@@ -153,8 +183,11 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/money'
     | '/partners'
+    | '/periods'
     | '/reports'
+    | '/staff'
     | '/stock'
     | '/catalog/$id'
     | '/documents/$id'
@@ -168,8 +201,11 @@ export interface FileRouteTypes {
     | '/catalog'
     | '/documents'
     | '/login'
+    | '/money'
     | '/partners'
+    | '/periods'
     | '/reports'
+    | '/staff'
     | '/stock'
     | '/catalog/$id'
     | '/documents/$id'
@@ -184,8 +220,11 @@ export interface RootRouteChildren {
   CatalogRoute: typeof CatalogRouteWithChildren
   DocumentsRoute: typeof DocumentsRouteWithChildren
   LoginRoute: typeof LoginRoute
+  MoneyRoute: typeof MoneyRoute
   PartnersRoute: typeof PartnersRoute
+  PeriodsRoute: typeof PeriodsRoute
   ReportsRoute: typeof ReportsRoute
+  StaffRoute: typeof StaffRoute
   StockRoute: typeof StockRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -220,6 +259,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/money': {
+      id: '/money'
+      path: '/money'
+      fullPath: '/money'
+      preLoaderRoute: typeof MoneyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/partners': {
       id: '/partners'
       path: '/partners'
@@ -227,11 +273,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PartnersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/periods': {
+      id: '/periods'
+      path: '/periods'
+      fullPath: '/periods'
+      preLoaderRoute: typeof PeriodsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reports': {
       id: '/reports'
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/staff': {
+      id: '/staff'
+      path: '/staff'
+      fullPath: '/staff'
+      preLoaderRoute: typeof StaffRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/stock': {
@@ -320,8 +380,11 @@ const rootRouteChildren: RootRouteChildren = {
   CatalogRoute: CatalogRouteWithChildren,
   DocumentsRoute: DocumentsRouteWithChildren,
   LoginRoute: LoginRoute,
+  MoneyRoute: MoneyRoute,
   PartnersRoute: PartnersRoute,
+  PeriodsRoute: PeriodsRoute,
   ReportsRoute: ReportsRoute,
+  StaffRoute: StaffRoute,
   StockRoute: StockRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

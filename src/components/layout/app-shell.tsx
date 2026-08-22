@@ -11,6 +11,7 @@ import {
   Menu,
   Users,
   Banknote,
+  CalendarRange,
 } from "lucide-react";
 import { APP_NAME, COMPANY, DOC_TYPE_LABEL } from "@/lib/erp/labels";
 import type { DocType } from "@/lib/erp/types";
@@ -52,7 +53,10 @@ const GROUPS = [
   },
   {
     label: "Компания",
-    items: [{ to: "/staff", label: "Сотрудники", icon: Users }],
+    items: [
+      { to: "/staff", label: "Сотрудники", icon: Users },
+      { to: "/periods", label: "Периоды", icon: CalendarRange },
+    ],
   },
 ] as const;
 
