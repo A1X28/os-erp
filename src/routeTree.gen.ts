@@ -30,6 +30,7 @@ import { Route as PartnersIdRouteImport } from './routes/partners.$id'
 import { Route as PrintIdRouteImport } from './routes/print.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronPeriodsRouteImport } from './routes/api/cron/periods'
+import { Route as PrintPartnerIdRouteImport } from './routes/print.partner.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -136,6 +137,11 @@ const ApiCronPeriodsRoute = ApiCronPeriodsRouteImport.update({
   path: '/api/cron/periods',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrintPartnerIdRoute = PrintPartnerIdRouteImport.update({
+  id: '/print/partner/$id',
+  path: '/print/partner/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/partners/': typeof PartnersIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/periods': typeof ApiCronPeriodsRoute
+  '/print/partner/$id': typeof PrintPartnerIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -179,6 +186,7 @@ export interface FileRoutesByTo {
   '/partners': typeof PartnersIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/periods': typeof ApiCronPeriodsRoute
+  '/print/partner/$id': typeof PrintPartnerIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -203,6 +211,7 @@ export interface FileRoutesById {
   '/partners/': typeof PartnersIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/periods': typeof ApiCronPeriodsRoute
+  '/print/partner/$id': typeof PrintPartnerIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -228,6 +237,7 @@ export interface FileRouteTypes {
     | '/partners/'
     | '/api/auth/$'
     | '/api/cron/periods'
+    | '/print/partner/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -248,6 +258,7 @@ export interface FileRouteTypes {
     | '/partners'
     | '/api/auth/$'
     | '/api/cron/periods'
+    | '/print/partner/$id'
   id:
     | '__root__'
     | '/'
@@ -271,6 +282,7 @@ export interface FileRouteTypes {
     | '/partners/'
     | '/api/auth/$'
     | '/api/cron/periods'
+    | '/print/partner/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -288,6 +300,7 @@ export interface RootRouteChildren {
   PrintIdRoute: typeof PrintIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronPeriodsRoute: typeof ApiCronPeriodsRoute
+  PrintPartnerIdRoute: typeof PrintPartnerIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -439,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronPeriodsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/print/partner/$id': {
+      id: '/print/partner/$id'
+      path: '/print/partner/$id'
+      fullPath: '/print/partner/$id'
+      preLoaderRoute: typeof PrintPartnerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -500,6 +520,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrintIdRoute: PrintIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronPeriodsRoute: ApiCronPeriodsRoute,
+  PrintPartnerIdRoute: PrintPartnerIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -3,10 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { getPartnerSettle } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
-import { formatDate, money } from "@/lib/erp/format";
+import { formatDate, money, todayIso } from "@/lib/erp/format";
+import { yearStartIso } from "@/lib/erp/settle";
 import { KIND_LABEL } from "@/lib/erp/labels";
 import type { Currency } from "@/lib/erp/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +25,8 @@ function PartnerCardPage() {
   const partnerId = Number(id);
   const qc = useQueryClient();
   const [pay, setPay] = useState<"in" | "out" | null>(null);
+  const [from, setFrom] = useState(() => yearStartIso(todayIso()));
+  const [to, setTo] = useState(() => todayIso());
 
   const q = useQuery({
     queryKey: ["partner-settle", partnerId],
@@ -54,6 +59,15 @@ function PartnerCardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link
+              to="/print/partner/$id"
+              params={{ id: String(p.id) }}
+              search={{ from, to }}
+            >
+              Акт сверки
+            </Link>
+          </Button>
           <Button variant="outline" onClick={() => setPay("out")}>
             Оплатить
           </Button>
@@ -74,7 +88,32 @@ function PartnerCardPage() {
       </div>
 
       <section className="overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
-        <h2 className="px-4 pt-4 font-display text-lg">Взаиморасчёты</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3 px-4 pt-4">
+          <h2 className="font-display text-lg">Взаиморасчёты</h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="grid gap-1">
+              <Label className="text-xs text-muted-foreground">С</Label>
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-8 w-[10.5rem]"
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs text-muted-foreground">По</Label>
+              <Input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-8 w-[10.5rem]"
+              />
+            </div>
+          </div>
+        </div>
+        <p className="px-4 pt-1 text-xs text-muted-foreground">
+          Даты для акта сверки. Таблица ниже — вся история.
+        </p>
         <div className="overflow-x-auto">
           <table className="mt-2 w-full min-w-[560px] text-sm">
             <thead className="border-y border-border bg-muted/50 text-left text-xs text-muted-foreground">
