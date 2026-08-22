@@ -28,7 +28,7 @@ export async function seedIfEmpty(sql: Sql): Promise<void> {
     },
     {
       code: "TRANS",
-      name: "Транзит",
+      name: "Склад Астана",
       city: "Астана",
       address: "ул. Кабанбай батыра, 8",
       isDefault: false,

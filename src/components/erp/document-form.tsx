@@ -108,7 +108,7 @@ function ProductPicker({
                     {forShipment
                       ? ` · доступно ${qtyFmt(p.available)}`
                       : ` · можно продать ${qtyFmt(p.available + p.incoming)}`}
-                    {p.incoming > 0 ? ` · в пути ${qtyFmt(p.incoming)}` : ""}
+                    {p.incoming > 0 ? ` · ожидается ${qtyFmt(p.incoming)}` : ""}
                   </span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

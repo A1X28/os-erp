@@ -79,7 +79,7 @@ function CatalogPage() {
                 <th className="px-3 py-2 text-right font-medium">Закуп</th>
                 <th className="px-3 py-2 text-right font-medium">Продажа</th>
                 <th className="px-3 py-2 text-right font-medium">Доступно</th>
-                <th className="px-3 py-2 text-right font-medium">В пути</th>
+                <th className="px-3 py-2 text-right font-medium">Ожидается</th>
               </tr>
             </thead>
             <tbody>
@@ -148,7 +148,7 @@ function CatalogPage() {
                     )}
                   >
                     {qtyFmt(p.available)} {p.unit}
-                    {p.incoming > 0 ? ` · в пути ${qtyFmt(p.incoming)}` : ""}
+                    {p.incoming > 0 ? ` · ожидается ${qtyFmt(p.incoming)}` : ""}
                   </span>
                 </span>
               </Link>

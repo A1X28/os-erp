@@ -71,12 +71,12 @@ function StockPage() {
       </div>
 
       <section className="mb-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
-        <h2 className="mb-1 font-display text-lg">В пути</h2>
+        <h2 className="mb-1 font-display text-lg">Ожидается от поставщика</h2>
         <p className="mb-3 text-xs text-muted-foreground">
-          Заказано у поставщика и ещё не принято. Можно продавать заказом — отгрузить после приёмки.
+          Купили, но на склад ещё не приняли. Покупателю уже можно выписать заказ — отгрузка после приёмки.
         </p>
         {(transit.data ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">Сейчас ничего не едет.</p>
+          <p className="text-sm text-muted-foreground">Сейчас ничего не ожидается.</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {(transit.data ?? []).map((row, i) => (
@@ -95,8 +95,7 @@ function StockPage() {
                       {row.number}
                     </Link>
                     {row.partnerName ? ` · ${row.partnerName}` : ""}
-                    {row.warehouseName ? ` · ${row.warehouseName}` : ""}
-                    {row.inTransit ? " · едет" : " · ожидание"}
+                    {row.warehouseName ? ` · на ${row.warehouseName}` : ""}
                   </span>
                 </span>
                 <span className="tabular-nums">{qtyFmt(row.qty)}</span>
@@ -148,7 +147,7 @@ function StockPage() {
                 <th className="px-3 py-2 text-right font-medium">На складе</th>
                 <th className="px-3 py-2 text-right font-medium">Резерв</th>
                 <th className="px-3 py-2 text-right font-medium">Доступно</th>
-                <th className="px-3 py-2 text-right font-medium">В пути</th>
+                <th className="px-3 py-2 text-right font-medium">Ожидается</th>
                 <th className="px-3 py-2 text-right font-medium">Сумма</th>
               </tr>
             </thead>
@@ -222,7 +221,7 @@ function StockPage() {
                   <span className="block text-xs text-muted-foreground">
                     склад {qtyFmt(r.qty)}
                     {r.reserved > 0 ? ` · резерв ${qtyFmt(r.reserved)}` : ""}
-                    {r.incoming > 0 ? ` · в пути ${qtyFmt(r.incoming)}` : ""}
+                    {r.incoming > 0 ? ` · ожидается ${qtyFmt(r.incoming)}` : ""}
                   </span>
                 </span>
               </Link>

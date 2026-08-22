@@ -60,13 +60,13 @@ function ProductDetailPage() {
           warn={product.available <= product.minStock}
         />
         <Stat
-          label="В пути"
+          label="Ожидается"
           value={`${qtyFmt(product.incoming)} ${product.unit}`}
         />
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
         Продать заказом можно {qtyFmt(product.available + product.incoming)} {product.unit}.
-        Отгрузить — только то, что уже на складе.
+        Отгрузить со склада — только когда товар уже приняли.
       </p>
 
       <section className="mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
@@ -87,7 +87,7 @@ function ProductDetailPage() {
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   склад {qtyFmt(w.qty)}
-                  {w.incoming ? ` · в пути ${qtyFmt(w.incoming)}` : ""}
+                  {w.incoming ? ` · ожидается ${qtyFmt(w.incoming)}` : ""}
                 </span>
               </span>
             </li>

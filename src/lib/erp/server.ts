@@ -840,7 +840,7 @@ export const postDocument = createServerFn({ method: "POST" })
           missing.push(
             `${line.name} (нужно ${num(line.qty)}, на складе доступно ${snap.available}${
               snap.incoming > 0
-                ? `, в пути ${snap.incoming} — отгрузить после приёмки`
+                ? `, ожидается ${snap.incoming} — отгрузить после приёмки`
                 : ""
             }${snap.reserved ? `, резерв ${snap.reserved}` : ""})`,
           );
