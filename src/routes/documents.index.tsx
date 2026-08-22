@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { listDocuments } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { formatDate, money } from "@/lib/erp/format";
 import { DOC_TYPE_LABEL } from "@/lib/erp/labels";
 import type { DocType } from "@/lib/erp/types";
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/documents/")({
-  loader: () => listDocuments({ data: {} }),
+  loader: () => orGuest(listDocuments({ data: {} }), []),
   component: DocumentsPage,
 });
 

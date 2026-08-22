@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CatalogRouteImport } from './routes/catalog'
 import { Route as DocumentsRouteImport } from './routes/documents'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as PartnersRouteImport } from './routes/partners'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as StockRouteImport } from './routes/stock'
@@ -20,6 +21,7 @@ import { Route as CatalogIdRouteImport } from './routes/catalog.$id'
 import { Route as DocumentsIndexRouteImport } from './routes/documents.index'
 import { Route as DocumentsIdRouteImport } from './routes/documents.$id'
 import { Route as DocumentsNewRouteImport } from './routes/documents.new'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,6 +36,11 @@ const CatalogRoute = CatalogRouteImport.update({
 const DocumentsRoute = DocumentsRouteImport.update({
   id: '/documents',
   path: '/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PartnersRoute = PartnersRouteImport.update({
@@ -76,11 +83,17 @@ const DocumentsNewRoute = DocumentsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => DocumentsRoute,
 } as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/catalog': typeof CatalogRouteWithChildren
   '/documents': typeof DocumentsRouteWithChildren
+  '/login': typeof LoginRoute
   '/partners': typeof PartnersRoute
   '/reports': typeof ReportsRoute
   '/stock': typeof StockRoute
@@ -89,9 +102,11 @@ export interface FileRoutesByFullPath {
   '/documents/new': typeof DocumentsNewRoute
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/partners': typeof PartnersRoute
   '/reports': typeof ReportsRoute
   '/stock': typeof StockRoute
@@ -100,12 +115,14 @@ export interface FileRoutesByTo {
   '/documents/new': typeof DocumentsNewRoute
   '/catalog': typeof CatalogIndexRoute
   '/documents': typeof DocumentsIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/catalog': typeof CatalogRouteWithChildren
   '/documents': typeof DocumentsRouteWithChildren
+  '/login': typeof LoginRoute
   '/partners': typeof PartnersRoute
   '/reports': typeof ReportsRoute
   '/stock': typeof StockRoute
@@ -114,6 +131,7 @@ export interface FileRoutesById {
   '/documents/new': typeof DocumentsNewRoute
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +139,7 @@ export interface FileRouteTypes {
     | '/'
     | '/catalog'
     | '/documents'
+    | '/login'
     | '/partners'
     | '/reports'
     | '/stock'
@@ -129,9 +148,11 @@ export interface FileRouteTypes {
     | '/documents/new'
     | '/catalog/'
     | '/documents/'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/login'
     | '/partners'
     | '/reports'
     | '/stock'
@@ -140,11 +161,13 @@ export interface FileRouteTypes {
     | '/documents/new'
     | '/catalog'
     | '/documents'
+    | '/api/auth/$'
   id:
     | '__root__'
     | '/'
     | '/catalog'
     | '/documents'
+    | '/login'
     | '/partners'
     | '/reports'
     | '/stock'
@@ -153,15 +176,18 @@ export interface FileRouteTypes {
     | '/documents/new'
     | '/catalog/'
     | '/documents/'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CatalogRoute: typeof CatalogRouteWithChildren
   DocumentsRoute: typeof DocumentsRouteWithChildren
+  LoginRoute: typeof LoginRoute
   PartnersRoute: typeof PartnersRoute
   ReportsRoute: typeof ReportsRoute
   StockRoute: typeof StockRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -185,6 +211,13 @@ declare module '@tanstack/react-router' {
       path: '/documents'
       fullPath: '/documents'
       preLoaderRoute: typeof DocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/partners': {
@@ -243,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocumentsNewRouteImport
       parentRoute: typeof DocumentsRoute
     }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -279,9 +319,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CatalogRoute: CatalogRouteWithChildren,
   DocumentsRoute: DocumentsRouteWithChildren,
+  LoginRoute: LoginRoute,
   PartnersRoute: PartnersRoute,
   ReportsRoute: ReportsRoute,
   StockRoute: StockRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

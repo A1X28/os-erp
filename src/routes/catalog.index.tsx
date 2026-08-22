@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { listProducts } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { money, qtyFmt } from "@/lib/erp/format";
 import { CATEGORIES } from "@/lib/erp/labels";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { ProductDialog } from "@/components/erp/product-dialog";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/catalog/")({
-  loader: () => listProducts({ data: {} }),
+  loader: () => orGuest(listProducts({ data: {} }), []),
   component: CatalogPage,
 });
 

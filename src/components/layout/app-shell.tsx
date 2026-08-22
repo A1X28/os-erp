@@ -23,6 +23,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { UserButton, RedirectToSignIn } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 const GROUPS = [
   {
@@ -164,6 +166,23 @@ function CreateMenu({ compact }: { compact?: boolean }) {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  const { user, isPending } = useCurrentUserState();
+
+  if (pathname === "/login") {
+    return <>{children}</>;
+  }
+
+  if (isPending) {
+    return (
+      <div className="grid min-h-dvh place-items-center bg-background">
+        <div className="h-10 w-40 animate-pulse rounded-md bg-muted" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <RedirectToSignIn />;
+  }
 
   return (
     <div className="flex min-h-dvh bg-background">
@@ -200,6 +219,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <div className="hidden items-center justify-end gap-3 px-6 pt-5 lg:flex">
+          <UserButton />
           <CreateMenu />
         </div>
 
@@ -242,6 +262,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             variant="sidebar"
             onNavigate={() => setOpen(false)}
           />
+          <div className="mt-6 px-3">
+            <UserButton />
+          </div>
         </SheetContent>
       </Sheet>
     </div>

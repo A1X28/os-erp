@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
 import { num } from "./format";
 import { DOC_TYPE_SHORT } from "./labels";
@@ -117,8 +118,9 @@ const DOC_SELECT = `
   coalesce((select count(*) from document_lines l where l.document_id = d.id), 0) as lines_count
 `;
 
-export const listWarehouses = createServerFn({ method: "GET" }).handler(
-  async (): Promise<Warehouse[]> => {
+export const listWarehouses = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<Warehouse[]> => {
     const sql = await withDb();
     const rows = await sql<Record<string, unknown>>`
       select id, code, name, city, address, is_default
@@ -136,7 +138,7 @@ export const listProducts = createServerFn({ method: "GET" })
       category: z.string().optional(),
     }),
   )
-  .handler(async ({ data }): Promise<Product[]> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<Product[]> => {
     const sql = await withDb();
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const category = data.category?.trim() || null;
@@ -158,7 +160,7 @@ export const listProducts = createServerFn({ method: "GET" })
 
 export const getProduct = createServerFn({ method: "GET" })
   .validator(z.object({ id: z.number() }))
-  .handler(async ({ data }) => {
+  .middleware([authMiddleware]).handler(async ({ data }) => {
     const sql = await withDb();
     const rows = await sql<Record<string, unknown>>`
       select p.*, coalesce(s.stock, 0) as stock
@@ -224,7 +226,7 @@ const productInput = z.object({
 
 export const saveProduct = createServerFn({ method: "POST" })
   .validator(productInput)
-  .handler(async ({ data }): Promise<Product> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<Product> => {
     const sql = await withDb();
     const barcode = data.barcode?.trim() || null;
     if (data.id) {
@@ -263,7 +265,7 @@ export const listPartners = createServerFn({ method: "GET" })
       kind: z.enum(["buyer", "supplier", "both", "all"]).optional(),
     }),
   )
-  .handler(async ({ data }): Promise<Partner[]> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<Partner[]> => {
     const sql = await withDb();
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const kind = data.kind && data.kind !== "all" ? data.kind : null;
@@ -293,7 +295,7 @@ const partnerInput = z.object({
 
 export const savePartner = createServerFn({ method: "POST" })
   .validator(partnerInput)
-  .handler(async ({ data }): Promise<Partner> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<Partner> => {
     const sql = await withDb();
     const inn = data.inn?.trim() ?? "";
     const city = data.city?.trim() ?? "";
@@ -328,7 +330,7 @@ export const listStock = createServerFn({ method: "GET" })
       lowOnly: z.boolean().optional(),
     }),
   )
-  .handler(async ({ data }): Promise<StockRow[]> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<StockRow[]> => {
     const sql = await withDb();
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const warehouseId = data.warehouseId ?? null;
@@ -384,7 +386,7 @@ export const listDocuments = createServerFn({ method: "GET" })
       status: z.enum(["draft", "posted", "all"]).optional(),
     }),
   )
-  .handler(async ({ data }): Promise<DocumentSummary[]> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<DocumentSummary[]> => {
     const sql = await withDb();
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const type = data.type && data.type !== "all" ? data.type : null;
@@ -410,7 +412,7 @@ export const listDocuments = createServerFn({ method: "GET" })
 
 export const getDocument = createServerFn({ method: "GET" })
   .validator(z.object({ id: z.number() }))
-  .handler(async ({ data }): Promise<DocumentDetail> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<DocumentDetail> => {
     const sql = await withDb();
     const docs = await sql<Record<string, unknown>>`
       select d.*,
@@ -516,7 +518,7 @@ async function nextNumber(type: DocType): Promise<string> {
 
 export const saveDocument = createServerFn({ method: "POST" })
   .validator(documentInput)
-  .handler(async ({ data }): Promise<{ id: number }> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ id: number }> => {
     const sql = await withDb();
     if (data.type === "transfer") {
       if (!data.fromWarehouseId || !data.toWarehouseId) {
@@ -580,7 +582,7 @@ export const saveDocument = createServerFn({ method: "POST" })
 
 export const postDocument = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
     const sql = await withDb();
     const docs = await sql<Record<string, unknown>>`
       select * from documents where id = ${data.id}
@@ -670,7 +672,7 @@ export const postDocument = createServerFn({ method: "POST" })
 
 export const unpostDocument = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
     const sql = await withDb();
     const docs = await sql<Record<string, unknown>>`
       select * from documents where id = ${data.id}
@@ -738,7 +740,7 @@ export const unpostDocument = createServerFn({ method: "POST" })
 
 export const deleteDraft = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
     const sql = await withDb();
     const docs = await sql<{ status: string }>`
       select status from documents where id = ${data.id}
@@ -753,7 +755,7 @@ export const deleteDraft = createServerFn({ method: "POST" })
 
 export const getDashboard = createServerFn({ method: "GET" })
   .validator(z.object({ period: periodSchema }))
-  .handler(async ({ data }): Promise<DashboardData> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<DashboardData> => {
     const sql = await withDb();
     const { from, label } = periodSql(data.period);
 
@@ -910,7 +912,7 @@ export const getDashboard = createServerFn({ method: "GET" })
 
 export const getReports = createServerFn({ method: "GET" })
   .validator(z.object({ period: periodSchema }))
-  .handler(async ({ data }): Promise<ReportData> => {
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<ReportData> => {
     const sql = await withDb();
     const { from, label } = periodSql(data.period);
 

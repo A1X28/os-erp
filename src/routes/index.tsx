@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { getDashboard } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { formatDateShort, money, pct, qtyFmt } from "@/lib/erp/format";
 import { COMPANY, PERIOD_LABEL } from "@/lib/erp/labels";
 import type { PeriodKey } from "@/lib/erp/types";
@@ -20,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
-  loader: () => getDashboard({ data: { period: "month" } }),
+  loader: () => orGuest(getDashboard({ data: { period: "month" } }), null),
   component: Dashboard,
 });
 
@@ -32,7 +33,7 @@ function Dashboard() {
   const q = useQuery({
     queryKey: ["dashboard", period],
     queryFn: () => getDashboard({ data: { period } }),
-    initialData: period === "month" ? initial : undefined,
+    initialData: period === "month" && initial ? initial : undefined,
   });
 
   const data = q.data;
