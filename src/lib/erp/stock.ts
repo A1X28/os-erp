@@ -61,9 +61,10 @@ export async function onHand(
   warehouseId: number,
 ): Promise<number> {
   const rows = await sql<{ qty: unknown }>`
-    select coalesce(sum(qty), 0) as qty
-    from stock_moves
-    where product_id = ${productId} and warehouse_id = ${warehouseId}
+    select coalesce((
+      select qty from stock_balance
+      where product_id = ${productId} and warehouse_id = ${warehouseId}
+    ), 0) as qty
   `;
   return num(rows[0]?.qty);
 }

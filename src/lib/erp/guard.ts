@@ -28,10 +28,29 @@ export function mapDbError(e: unknown): Error {
   return e;
 }
 
-export async function withTx<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
+export async function withTx<T>(
+  fn: (sql: Sql) => Promise<T>,
+  actorId?: string,
+): Promise<T> {
   await withDb();
   try {
-    return await runTransaction(fn);
+    return await runTransaction(async (sql) => {
+      if (actorId) {
+        let email = "";
+        try {
+          const rows = await sql.query<{ email: string | null }>(
+            `select email from "user" where id = $1`,
+            [actorId],
+          );
+          email = rows[0]?.email ?? "";
+        } catch {
+          email = "";
+        }
+        await sql.query("select set_config('os.actor_id', $1, true)", [actorId]);
+        await sql.query("select set_config('os.actor_email', $1, true)", [email]);
+      }
+      return fn(sql);
+    });
   } catch (e) {
     throw mapDbError(e);
   }
@@ -39,6 +58,21 @@ export async function withTx<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
 
 export async function lockStock(sql: Sql, productId: number, warehouseId: number) {
   await sql.query("select pg_advisory_xact_lock($1, $2)", [productId, warehouseId]);
+}
+
+export async function lockStockKeys(sql: Sql, keys: Array<[number, number]>) {
+  const seen = new Set<string>();
+  const ordered = [...keys]
+    .filter(([p, w]) => {
+      const k = `${p}:${w}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  for (const [productId, warehouseId] of ordered) {
+    await lockStock(sql, productId, warehouseId);
+  }
 }
 
 export async function lockDocument(

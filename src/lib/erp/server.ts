@@ -5,11 +5,12 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
 import { num } from "./format";
-import { lockDocument, lockNumber, lockStock, withTx } from "./guard";
+import { lockDocument, lockNumber, lockStockKeys, withTx } from "./guard";
 import {
   availableQty,
   findSaleInChain,
   notEnough,
+  onHand,
   shippedInChain,
 } from "./stock";
 import type { Sql } from "@/lib/db";
@@ -189,7 +190,7 @@ export const listProducts = createServerFn({ method: "GET" })
       from products p
       left join (
         select product_id, sum(qty) as qty
-        from stock_moves
+        from stock_balance
         where (${warehouseId}::int is null or warehouse_id = ${warehouseId})
         group by product_id
       ) h on h.product_id = p.id
@@ -251,7 +252,7 @@ export const getProduct = createServerFn({ method: "GET" })
       select p.*, coalesce(s.stock, 0) as stock
       from products p
       left join (
-        select product_id, sum(qty) as stock from stock_moves group by product_id
+        select product_id, sum(qty) as stock from stock_balance group by product_id
       ) s on s.product_id = p.id
       where p.id = ${data.id}
     `;
@@ -271,10 +272,7 @@ export const getProduct = createServerFn({ method: "GET" })
       incoming: unknown;
     }>`
       select w.id as warehouse_id, w.name, w.city,
-        coalesce((
-          select sum(m.qty) from stock_moves m
-          where m.warehouse_id = w.id and m.product_id = ${data.id}
-        ), 0) as qty,
+        coalesce(b.qty, 0) as qty,
         coalesce((
           select sum(greatest(l.qty - coalesce(ship.qty, 0), 0))
           from documents d
@@ -312,6 +310,8 @@ export const getProduct = createServerFn({ method: "GET" })
             )
         ), 0) as incoming
       from warehouses w
+      left join stock_balance b
+        on b.warehouse_id = w.id and b.product_id = ${data.id}
       order by w.id
     `;
     const moves = await sql<Record<string, unknown>>`
@@ -483,17 +483,18 @@ export const listStock = createServerFn({ method: "GET" })
         p.id as product_id, p.sku, p.name, p.unit, p.category, p.min_stock,
         p.purchase_price, p.sale_price,
         w.id as warehouse_id, w.name as warehouse_name,
-        coalesce(sum(m.qty), 0) as qty,
+        coalesce(b.qty, 0) as qty,
+        coalesce(b.cost, 0) as unit_cost,
         coalesce(r.reserved, 0) as reserved,
         coalesce(i.incoming, 0) as incoming,
-        greatest(coalesce(sum(m.qty), 0) - coalesce(r.reserved, 0), 0) as available,
+        greatest(coalesce(b.qty, 0) - coalesce(r.reserved, 0), 0) as available,
         coalesce((
-          select sum(m2.qty) from stock_moves m2 where m2.product_id = p.id
+          select sum(b2.qty) from stock_balance b2 where b2.product_id = p.id
         ), 0) as stock_total
       from products p
       cross join warehouses w
-      left join stock_moves m
-        on m.product_id = p.id and m.warehouse_id = w.id
+      left join stock_balance b
+        on b.product_id = p.id and b.warehouse_id = w.id
       left join (
         select l.product_id, d.warehouse_id,
           sum(greatest(l.qty - coalesce(ship.qty, 0), 0)) as reserved
@@ -527,7 +528,7 @@ export const listStock = createServerFn({ method: "GET" })
             select 1 from documents rec
             where rec.type = 'purchase' and rec.status = 'posted'
               and (rec.source_id = d.id or rec.source_id in (
-                select b.id from documents b where b.source_id = d.id
+                select x.id from documents x where x.source_id = d.id
               ))
           )
         group by l.product_id, d.warehouse_id
@@ -535,14 +536,16 @@ export const listStock = createServerFn({ method: "GET" })
       where (${warehouseId}::int is null or w.id = ${warehouseId})
         and (${q}::text is null or lower(p.name) like ${q} or lower(p.sku) like ${q})
       group by p.id, p.sku, p.name, p.unit, p.category, p.min_stock,
-               p.purchase_price, p.sale_price, w.id, w.name, r.reserved, i.incoming
+               p.purchase_price, p.sale_price, w.id, w.name,
+               b.qty, b.cost, r.reserved, i.incoming
       having (${lowOnly} = false or coalesce((
-        select sum(m3.qty) from stock_moves m3 where m3.product_id = p.id
+        select sum(b3.qty) from stock_balance b3 where b3.product_id = p.id
       ), 0) <= p.min_stock)
       order by p.name, w.id
     `;
     return rows.map((r) => {
       const qty = num(r.qty);
+      const unitCost = num(r.unit_cost);
       const purchasePrice = num(r.purchase_price);
       const reserved = num(r.reserved);
       const incoming = num(r.incoming);
@@ -562,7 +565,7 @@ export const listStock = createServerFn({ method: "GET" })
         reserved,
         available,
         incoming,
-        value: qty * purchasePrice,
+        value: qty * unitCost,
         stockTotal: num(r.stock_total),
       };
     });
@@ -739,7 +742,7 @@ async function nextNumber(sql: Sql, type: DocType): Promise<string> {
 
 export const saveDocument = createServerFn({ method: "POST" })
   .validator(documentInput)
-  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ id: number }> => {
+  .middleware([authMiddleware]).handler(async ({ data, context }): Promise<{ id: number }> => {
     return withTx(async (sql) => {
     if (data.type === "transfer") {
       if (!data.fromWarehouseId || !data.toWarehouseId) {
@@ -797,12 +800,12 @@ export const saveDocument = createServerFn({ method: "POST" })
       `;
     }
     return { id: id! };
-    });
+    }, context.userId);
   });
 
 export const postDocument = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
-  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
+  .middleware([authMiddleware]).handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
     const peek = await sql.query<{ id: number; source_id: number | null }>(
       "select id, source_id from documents where id = $1",
@@ -838,9 +841,12 @@ export const postDocument = createServerFn({ method: "POST" })
 
     if (type === "sale" || type === "writeoff") {
       if (!warehouseId) throw new Error("Не указан склад");
+      await lockStockKeys(
+        sql,
+        lines.map((line) => [line.product_id, warehouseId] as [number, number]),
+      );
       const missing: string[] = [];
       for (const line of lines) {
-        await lockStock(sql, line.product_id, warehouseId);
         const snap = await availableQty(
           sql,
           line.product_id,
@@ -863,9 +869,15 @@ export const postDocument = createServerFn({ method: "POST" })
     }
     if (type === "transfer") {
       if (!fromId || !toId) throw new Error("Не указаны склады перемещения");
+      await lockStockKeys(
+        sql,
+        lines.flatMap((line) => [
+          [line.product_id, fromId] as [number, number],
+          [line.product_id, toId] as [number, number],
+        ]),
+      );
       const missing: string[] = [];
       for (const line of lines) {
-        await lockStock(sql, line.product_id, fromId);
         const snap = await availableQty(sql, line.product_id, fromId, null);
         if (notEnough(snap.available, num(line.qty))) {
           missing.push(
@@ -914,12 +926,12 @@ export const postDocument = createServerFn({ method: "POST" })
       `;
     }
     return { ok: true };
-    });
+    }, context.userId);
   });
 
 export const unpostDocument = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
-  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
+  .middleware([authMiddleware]).handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
     const d = await lockDocument(sql, data.id);
     if (!d) throw new Error("Документ не найден");
@@ -935,24 +947,25 @@ export const unpostDocument = createServerFn({ method: "POST" })
 
     if (type === "purchase" || type === "sale" || type === "writeoff") {
       const warehouseId = num(d.warehouse_id);
-      for (const line of lines) await lockStock(sql, line.product_id, warehouseId);
+      await lockStockKeys(
+        sql,
+        lines.map((line) => [line.product_id, warehouseId] as [number, number]),
+      );
     }
     if (type === "transfer") {
       const fromId = num(d.from_warehouse_id);
       const toId = num(d.to_warehouse_id);
-      for (const line of lines) {
-        await lockStock(sql, line.product_id, fromId);
-        await lockStock(sql, line.product_id, toId);
-      }
+      await lockStockKeys(
+        sql,
+        lines.flatMap((line) => [
+          [line.product_id, fromId] as [number, number],
+          [line.product_id, toId] as [number, number],
+        ]),
+      );
     }
 
     async function stockAt(productId: number, whId: number): Promise<number> {
-      const rows = await sql<{ qty: unknown }>`
-        select coalesce(sum(qty), 0) as qty
-        from stock_moves
-        where product_id = ${productId} and warehouse_id = ${whId}
-      `;
-      return num(rows[0]?.qty);
+      return onHand(sql, productId, whId);
     }
 
     if (type === "purchase") {
@@ -994,12 +1007,12 @@ export const unpostDocument = createServerFn({ method: "POST" })
       update documents set status = 'draft', posted_at = null where id = ${data.id}
     `;
     return { ok: true };
-    });
+    }, context.userId);
   });
 
 export const deleteDraft = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
-  .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
+  .middleware([authMiddleware]).handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
     const docs = await lockDocument(sql, data.id);
     if (!docs) throw new Error("Документ не найден");
@@ -1008,7 +1021,7 @@ export const deleteDraft = createServerFn({ method: "POST" })
     }
     await sql`delete from documents where id = ${data.id}`;
     return { ok: true };
-    });
+    }, context.userId);
   });
 
 export const getDashboard = createServerFn({ method: "GET" })
@@ -1022,19 +1035,22 @@ export const getDashboard = createServerFn({ method: "GET" })
         sql<{ revenue: unknown; cogs: unknown; docs: unknown }>`
           select
             coalesce(sum(l.amount), 0) as revenue,
-            coalesce(sum(l.qty * p.purchase_price), 0) as cogs,
+            coalesce((
+              select sum(abs(m.qty) * m.cost)
+              from stock_moves m
+              join documents ds on ds.id = m.document_id
+              where ds.type = 'sale' and ds.status = 'posted'
+                and ds.doc_date >= ${from}
+                and m.qty < 0
+            ), 0) as cogs,
             count(distinct d.id) as docs
           from documents d
           join document_lines l on l.document_id = d.id
-          join products p on p.id = l.product_id
           where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
         `,
         sql<{ value: unknown }>`
-          select coalesce(sum(x.qty * p.purchase_price), 0) as value
-          from (
-            select product_id, sum(qty) as qty from stock_moves group by product_id
-          ) x
-          join products p on p.id = x.product_id
+          select coalesce(sum(b.qty * b.cost), 0) as value
+          from stock_balance b
         `,
         sql<{ n: unknown; amount: unknown }>`
           select count(*) as n,
@@ -1056,7 +1072,7 @@ export const getDashboard = createServerFn({ method: "GET" })
                  count(*) over() as n_low
           from products p
           left join (
-            select product_id, sum(qty) as stock from stock_moves group by product_id
+            select product_id, sum(qty) as stock from stock_balance group by product_id
           ) s on s.product_id = p.id
           where coalesce(s.stock, 0) <= p.min_stock
           order by (coalesce(s.stock, 0) / nullif(p.min_stock, 0)) asc nulls first, p.name
@@ -1087,10 +1103,9 @@ export const getDashboard = createServerFn({ method: "GET" })
           value: unknown;
         }>`
           select w.id, w.name, w.city,
-            coalesce(sum(m.qty * p.purchase_price), 0) as value
+            coalesce(sum(b.qty * b.cost), 0) as value
           from warehouses w
-          left join stock_moves m on m.warehouse_id = w.id
-          left join products p on p.id = m.product_id
+          left join stock_balance b on b.warehouse_id = w.id
           group by w.id, w.name, w.city
           order by w.id
         `,
@@ -1212,7 +1227,13 @@ export const getReports = createServerFn({ method: "GET" })
       select p.id as product_id, p.sku, p.name,
         coalesce(sum(l.qty), 0) as qty,
         coalesce(sum(l.amount), 0) as revenue,
-        coalesce(sum(l.qty * p.purchase_price), 0) as cogs
+        coalesce((
+          select sum(abs(m.qty) * m.cost)
+          from stock_moves m
+          join documents ds on ds.id = m.document_id
+          where ds.type = 'sale' and ds.status = 'posted' and ds.doc_date >= ${from}
+            and m.qty < 0 and m.product_id = p.id
+        ), 0) as cogs
       from documents d
       join document_lines l on l.document_id = d.id
       join products p on p.id = l.product_id
@@ -1233,14 +1254,12 @@ export const getReports = createServerFn({ method: "GET" })
     `,
       sql<Record<string, unknown>>`
       select p.category,
-        coalesce(sum(x.qty * p.purchase_price), 0) as value,
-        coalesce(sum(x.qty), 0) as qty
-      from (
-        select product_id, sum(qty) as qty from stock_moves group by product_id
-      ) x
-      join products p on p.id = x.product_id
+        coalesce(sum(b.qty * b.cost), 0) as value,
+        coalesce(sum(b.qty), 0) as qty
+      from stock_balance b
+      join products p on p.id = b.product_id
       group by p.category
-      order by sum(x.qty * p.purchase_price) desc
+      order by sum(b.qty * b.cost) desc
     `,
     ]);
 
@@ -1385,11 +1404,14 @@ export const savePayment = createServerFn({ method: "POST" })
       comment: z.string().optional(),
     }),
   )
-  .handler(async ({ data }): Promise<Payment> => {
+  .handler(async ({ data, context }): Promise<Payment> => {
     return withTx(async (sql) => {
     if (data.documentId) {
       const docs = await lockDocument(sql, data.documentId);
       if (!docs) throw new Error("Документ не найден");
+      if (String(docs.status) !== "posted") {
+        throw new Error("Оплату можно повесить только на проведённый документ");
+      }
       if (docs.counterparty_id && num(docs.counterparty_id) !== data.partnerId) {
         throw new Error("Контрагент не совпадает с документом");
       }
@@ -1420,17 +1442,17 @@ export const savePayment = createServerFn({ method: "POST" })
       where p.id = ${num(rows[0].id)}
     `;
     return mapPayment(created[0]);
-    });
+    }, context.userId);
   });
 
 export const deletePayment = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ id: z.number() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
     await sql`delete from payments where id = ${data.id}`;
     return { ok: true };
-    });
+    }, context.userId);
   });
 
 export const followOn = createServerFn({ method: "POST" })
@@ -1441,7 +1463,7 @@ export const followOn = createServerFn({ method: "POST" })
       toType: z.enum(DOC_TYPES).optional(),
     }),
   )
-  .handler(async ({ data }): Promise<{ id: number }> => {
+  .handler(async ({ data, context }): Promise<{ id: number }> => {
     return withTx(async (sql) => {
     const src = await lockDocument(sql, data.id);
     if (!src) throw new Error("Документ не найден");
@@ -1500,13 +1522,13 @@ export const followOn = createServerFn({ method: "POST" })
       throw new Error("По этому заказу уже всё отгружено");
     }
     return { id };
-    });
+    }, context.userId);
   });
 
 export const setInTransit = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ id: z.number(), value: z.boolean() }))
-  .handler(async ({ data }): Promise<{ ok: true }> => {
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
     const docs = await lockDocument(sql, data.id);
     if (!docs) throw new Error("Документ не найден");
@@ -1515,7 +1537,7 @@ export const setInTransit = createServerFn({ method: "POST" })
     }
     await sql`update documents set in_transit = ${data.value} where id = ${data.id}`;
     return { ok: true };
-    });
+    }, context.userId);
   });
 
 export const listInTransit = createServerFn({ method: "GET" })
