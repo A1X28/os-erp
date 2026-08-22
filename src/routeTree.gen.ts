@@ -25,6 +25,7 @@ import { Route as DocumentsIndexRouteImport } from './routes/documents.index'
 import { Route as DocumentsIdRouteImport } from './routes/documents.$id'
 import { Route as DocumentsNewRouteImport } from './routes/documents.new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiCronPeriodsRouteImport } from './routes/api/cron/periods'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -106,6 +107,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronPeriodsRoute = ApiCronPeriodsRouteImport.update({
+  id: '/api/cron/periods',
+  path: '/api/cron/periods',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/periods': typeof ApiCronPeriodsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/catalog': typeof CatalogIndexRoute
   '/documents': typeof DocumentsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/periods': typeof ApiCronPeriodsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/periods': typeof ApiCronPeriodsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/catalog/'
     | '/documents/'
     | '/api/auth/$'
+    | '/api/cron/periods'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -195,6 +205,7 @@ export interface FileRouteTypes {
     | '/catalog'
     | '/documents'
     | '/api/auth/$'
+    | '/api/cron/periods'
   id:
     | '__root__'
     | '/'
@@ -213,6 +224,7 @@ export interface FileRouteTypes {
     | '/catalog/'
     | '/documents/'
     | '/api/auth/$'
+    | '/api/cron/periods'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -227,6 +239,7 @@ export interface RootRouteChildren {
   StaffRoute: typeof StaffRoute
   StockRoute: typeof StockRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiCronPeriodsRoute: typeof ApiCronPeriodsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -343,6 +356,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/periods': {
+      id: '/api/cron/periods'
+      path: '/api/cron/periods'
+      fullPath: '/api/cron/periods'
+      preLoaderRoute: typeof ApiCronPeriodsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -387,6 +407,7 @@ const rootRouteChildren: RootRouteChildren = {
   StaffRoute: StaffRoute,
   StockRoute: StockRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiCronPeriodsRoute: ApiCronPeriodsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

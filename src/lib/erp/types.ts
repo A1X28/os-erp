@@ -225,8 +225,16 @@ export type PeriodMonth = {
   month: number;
   label: string;
   closed: boolean;
+  auto: boolean;
   closedAt: string | null;
   closedEmail: string | null;
   canClose: boolean;
   canReopen: boolean;
+  closesOn: string | null;
+};
+
+export type PeriodBoard = {
+  autoClose: boolean;
+  graceDays: number;
+  months: PeriodMonth[];
 };

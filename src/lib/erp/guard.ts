@@ -34,7 +34,7 @@ export async function withTx<T>(
 ): Promise<T> {
   await withDb();
   try {
-    return await runTransaction(async (sql) => {
+    const out = await runTransaction(async (sql) => {
       if (actorId) {
         let email = "";
         try {
@@ -51,6 +51,14 @@ export async function withTx<T>(
       }
       return fn(sql);
     });
+    try {
+      await runTransaction(async (sql) => {
+        await sql.query("select os_auto_close_periods()");
+      });
+    } catch {
+      // period close must not roll back a finished posting
+    }
+    return out;
   } catch (e) {
     throw mapDbError(e);
   }

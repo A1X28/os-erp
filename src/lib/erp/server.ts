@@ -36,6 +36,7 @@ import type {
   TransitRow,
   Warehouse,
   PeriodMonth,
+  PeriodBoard,
 } from "./types";
 import { DOC_TYPES } from "./types";
 
@@ -1607,17 +1608,40 @@ function prevMonth(year: number, month: number): { year: number; month: number }
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
 }
 
+function zonedToday(): { year: number; month: number; day: number } {
+  const raw = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Almaty",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const [year, month, day] = raw.split("-").map(Number);
+  return { year, month, day };
+}
+
+function monthLastPlus(year: number, month: number, grace: number): string {
+  const last = new Date(Date.UTC(year, month, 0));
+  last.setUTCDate(last.getUTCDate() + grace);
+  return last.toISOString().slice(0, 10);
+}
+
 export const listPeriods = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<PeriodMonth[]> => {
+  .handler(async (): Promise<PeriodBoard> => {
     const sql = await withDb();
+    const settings = await sql<{ auto_close: boolean; grace_days: number }>`
+      select auto_close, grace_days from period_settings where id = 1
+    `;
+    const autoClose = settings[0]?.auto_close ?? true;
+    const graceDays = num(settings[0]?.grace_days ?? 5);
     const closed = await sql<{
       year: number;
       month: number;
       closed_at: string;
       closed_email: string;
+      auto: boolean;
     }>`
-      select year, month, closed_at::text, closed_email
+      select year, month, closed_at::text, closed_email, auto
       from closed_periods
       order by year desc, month desc
     `;
@@ -1625,10 +1649,9 @@ export const listPeriods = createServerFn({ method: "GET" })
       closed.map((r) => [`${r.year}-${r.month}`, r] as const),
     );
     const latest = closed[0] ?? null;
-    const now = new Date();
-    const cy = now.getFullYear();
-    const cm = now.getMonth() + 1;
+    const { year: cy, month: cm } = zonedToday();
     const next = latest ? nextMonth(latest.year, latest.month) : null;
+    const prev = prevMonth(cy, cm);
     const rows: PeriodMonth[] = [];
     let y = cy;
     let m = cm;
@@ -1638,25 +1661,54 @@ export const listPeriods = createServerFn({ method: "GET" })
       const isLatest =
         latest != null && latest.year === y && latest.month === m;
       const isFuture = y > cy || (y === cy && m > cm);
+      const isCurrent = y === cy && m === cm;
       const canClose =
         !isClosed &&
         !isFuture &&
         (next ? next.year === y && next.month === m : true);
+      const afterLatest = latest
+        ? y > latest.year || (y === latest.year && m > latest.month)
+        : y === prev.year && m === prev.month;
+      const willAuto =
+        autoClose && !isClosed && !isCurrent && !isFuture && afterLatest;
       rows.push({
         year: y,
         month: m,
         label: `${MONTHS_RU[m - 1]} ${y}`,
         closed: isClosed,
+        auto: Boolean(row?.auto),
         closedAt: row ? String(row.closed_at).slice(0, 10) : null,
         closedEmail: row?.closed_email ? String(row.closed_email) : null,
         canClose,
         canReopen: isLatest,
+        closesOn: willAuto ? monthLastPlus(y, m, graceDays) : null,
       });
       const p = prevMonth(y, m);
       y = p.year;
       m = p.month;
     }
-    return rows;
+    return { autoClose, graceDays, months: rows };
+  });
+
+export const savePeriodSettings = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      autoClose: z.boolean(),
+      graceDays: z.number().int().min(0).max(31),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<PeriodBoard> => {
+    await withTx(async (sql) => {
+      await sql`
+        insert into period_settings (id, auto_close, grace_days)
+        values (1, ${data.autoClose}, ${data.graceDays})
+        on conflict (id) do update set
+          auto_close = excluded.auto_close,
+          grace_days = excluded.grace_days
+      `;
+    }, context.userId);
+    return listPeriods();
   });
 
 export const closePeriod = createServerFn({ method: "POST" })
@@ -1685,10 +1737,11 @@ export const closePeriod = createServerFn({ method: "POST" })
         }
       }
       await sql`
-        insert into closed_periods (year, month, closed_by, closed_email)
+        insert into closed_periods (year, month, closed_by, closed_email, auto)
         values (
           ${year}, ${month}, ${context.userId},
-          coalesce((select email from "user" where id = ${context.userId}), '')
+          coalesce((select email from "user" where id = ${context.userId}), ''),
+          false
         )
       `;
       await sql.query(
