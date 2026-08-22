@@ -1,8 +1,11 @@
 export const DOC_TYPES = [
-  "sale",
+  "po",
+  "bill",
   "purchase",
-  "transfer",
   "order",
+  "invoice",
+  "sale",
+  "transfer",
   "writeoff",
 ] as const;
 
@@ -127,6 +130,8 @@ export type DocumentDetail = {
   payments: Payment[];
   shipmentId: number | null;
   shipmentNumber: string | null;
+  childType: DocType | null;
+  inTransit: boolean;
   lines: DocumentLine[];
   moves: StockMove[];
   amount: number;
@@ -146,6 +151,15 @@ export type StockRow = {
   qty: number;
   value: number;
   stockTotal: number;
+};
+
+export type TransitRow = {
+  documentId: number;
+  number: string;
+  partnerName: string;
+  productName: string;
+  qty: number;
+  amount: number;
 };
 
 export type DashboardData = {

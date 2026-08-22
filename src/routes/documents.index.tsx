@@ -19,9 +19,12 @@ export const Route = createFileRoute("/documents/")({
 
 const TYPES: Array<"all" | DocType> = [
   "all",
-  "sale",
+  "po",
+  "bill",
   "purchase",
   "order",
+  "invoice",
+  "sale",
   "transfer",
   "writeoff",
 ];

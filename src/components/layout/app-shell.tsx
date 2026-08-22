@@ -16,6 +16,7 @@ import { APP_NAME, COMPANY, DOC_TYPE_LABEL } from "@/lib/erp/labels";
 import type { DocType } from "@/lib/erp/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,9 +57,12 @@ const GROUPS = [
 ] as const;
 
 const CREATE: { type: DocType; hint: string }[] = [
-  { type: "sale", hint: "Списать товар покупателю" },
+  { type: "po", hint: "Заказать у поставщика" },
+  { type: "bill", hint: "Счёт на оплату поставщику" },
   { type: "purchase", hint: "Принять товар на склад" },
-  { type: "order", hint: "Заявка без движения склада" },
+  { type: "order", hint: "Заявка покупателя" },
+  { type: "invoice", hint: "Счёт покупателю" },
+  { type: "sale", hint: "Отгрузить со склада" },
   { type: "transfer", hint: "Между складами" },
   { type: "writeoff", hint: "Бой, порча, недостача" },
 ];
@@ -93,27 +97,15 @@ function AxisMark({ className }: { className?: string }) {
 function NavLinks({
   pathname,
   onNavigate,
-  variant,
 }: {
   pathname: string;
   onNavigate?: () => void;
-  variant: "sidebar" | "sheet";
 }) {
-  const muted = variant === "sidebar" ? "text-sidebar-muted" : "text-muted-foreground";
-  const idle =
-    variant === "sidebar"
-      ? "text-sidebar-foreground/80 hover:bg-sidebar-accent"
-      : "text-foreground hover:bg-muted";
-  const active =
-    variant === "sidebar"
-      ? "bg-sidebar-accent text-sidebar-foreground"
-      : "bg-muted text-foreground";
-
   return (
     <nav className="flex flex-col gap-5">
       {GROUPS.map((group) => (
         <div key={group.label}>
-          <p className={cn("mb-1.5 px-3 text-xs font-medium uppercase tracking-wider", muted)}>
+          <p className="mb-1.5 px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {group.label}
           </p>
           <ul className="flex flex-col gap-0.5">
@@ -127,7 +119,9 @@ function NavLinks({
                     onClick={onNavigate}
                     className={cn(
                       "flex h-10 items-center gap-2.5 rounded-md px-3 text-sm font-medium transition-colors duration-150",
-                      on ? active : idle,
+                      on
+                        ? "bg-muted text-foreground"
+                        : "text-foreground/80 hover:bg-muted",
                     )}
                   >
                     <Icon className="size-4 shrink-0" />
@@ -155,7 +149,35 @@ function CreateMenu({ compact }: { compact?: boolean }) {
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel>Новый документ</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {CREATE.map((item) => (
+        <DropdownMenuLabel>Закупка</DropdownMenuLabel>
+        {CREATE.filter((i) => i.type === "po" || i.type === "bill" || i.type === "purchase").map(
+          (item) => (
+            <DropdownMenuItem key={item.type} asChild>
+              <Link to="/documents/new" search={{ type: item.type }}>
+                <span className="flex flex-col">
+                  <span>{DOC_TYPE_LABEL[item.type]}</span>
+                  <span className="text-xs text-muted-foreground">{item.hint}</span>
+                </span>
+              </Link>
+            </DropdownMenuItem>
+          ),
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Продажа</DropdownMenuLabel>
+        {CREATE.filter((i) => i.type === "order" || i.type === "invoice" || i.type === "sale").map(
+          (item) => (
+            <DropdownMenuItem key={item.type} asChild>
+              <Link to="/documents/new" search={{ type: item.type }}>
+                <span className="flex flex-col">
+                  <span>{DOC_TYPE_LABEL[item.type]}</span>
+                  <span className="text-xs text-muted-foreground">{item.hint}</span>
+                </span>
+              </Link>
+            </DropdownMenuItem>
+          ),
+        )}
+        <DropdownMenuSeparator />
+        {CREATE.filter((i) => i.type === "transfer" || i.type === "writeoff").map((item) => (
           <DropdownMenuItem key={item.type} asChild>
             <Link to="/documents/new" search={{ type: item.type }}>
               <span className="flex flex-col">
@@ -210,20 +232,21 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground lg:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card lg:flex">
         <div className="flex items-center gap-2.5 px-4 py-5">
-          <AxisMark className="size-8 text-sidebar-foreground" />
+          <AxisMark className="size-8 text-foreground" />
           <div className="min-w-0">
             <p className="font-display text-lg leading-tight tracking-tight">{APP_NAME}</p>
-            <p className="truncate text-xs text-sidebar-muted">{COMPANY}</p>
+            <p className="truncate text-xs text-muted-foreground">{COMPANY}</p>
           </div>
         </div>
         <div className="flex-1 px-2 py-1">
-          <NavLinks pathname={pathname} variant="sidebar" />
+          <NavLinks pathname={pathname} />
         </div>
-        <p className="px-4 py-4 text-xs text-sidebar-muted">
-          Учёт без лишнего шума
-        </p>
+        <div className="flex items-center justify-between px-3 py-3">
+          <p className="text-xs text-muted-foreground">Учёт без лишнего шума</p>
+          <ThemeToggle compact />
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -242,7 +265,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <CreateMenu compact />
         </header>
 
-        <div className="hidden items-center justify-end gap-3 px-6 pt-5 lg:flex">
+        <div className="hidden items-center justify-end gap-2 px-6 pt-5 lg:flex">
+          <ThemeToggle />
           <UserButton />
           <CreateMenu />
         </div>
@@ -276,18 +300,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-72 bg-sidebar text-sidebar-foreground">
+        <SheetContent side="left" className="w-72 bg-card">
           <SheetHeader>
-            <SheetTitle className="text-sidebar-foreground">{APP_NAME}</SheetTitle>
-            <p className="text-xs text-sidebar-muted">{COMPANY}</p>
+            <SheetTitle>{APP_NAME}</SheetTitle>
+            <p className="text-xs text-muted-foreground">{COMPANY}</p>
           </SheetHeader>
-          <NavLinks
-            pathname={pathname}
-            variant="sidebar"
-            onNavigate={() => setOpen(false)}
-          />
-          <div className="mt-6 px-3">
+          <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
+          <div className="mt-6 flex items-center justify-between px-3">
             <UserButton />
+            <ThemeToggle compact />
           </div>
         </SheetContent>
       </Sheet>

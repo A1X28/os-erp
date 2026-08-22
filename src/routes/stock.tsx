@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
-import { listStock, listWarehouses } from "@/lib/erp/server";
+import { listInTransit, listStock, listWarehouses } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { money, qtyFmt } from "@/lib/erp/format";
 import { Input } from "@/components/ui/input";
@@ -10,11 +10,12 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/stock")({
   loader: async () => {
-    const [warehouses, stock] = await Promise.all([
+    const [warehouses, stock, transit] = await Promise.all([
       orGuest(listWarehouses(), []),
       orGuest(listStock({ data: {} }), []),
+      orGuest(listInTransit(), []),
     ]);
-    return { warehouses, stock };
+    return { warehouses, stock, transit };
   },
   component: StockPage,
 });
@@ -29,6 +30,12 @@ function StockPage() {
     queryKey: ["warehouses"],
     queryFn: () => listWarehouses(),
     initialData: initial.warehouses,
+    initialDataUpdatedAt: Date.now(),
+  });
+  const transit = useQuery({
+    queryKey: ["in-transit"],
+    queryFn: () => listInTransit(),
+    initialData: initial.transit,
     initialDataUpdatedAt: Date.now(),
   });
   const stock = useQuery({
@@ -62,6 +69,29 @@ function StockPage() {
           </p>
         </div>
       </div>
+
+      {(transit.data ?? []).length > 0 ? (
+        <section className="mb-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
+          <h2 className="mb-3 font-display text-lg">В пути</h2>
+          <ul className="space-y-2 text-sm">
+            {(transit.data ?? []).map((row, i) => (
+              <li
+                key={`${row.documentId}-${i}`}
+                className="flex items-center justify-between gap-3"
+              >
+                <span>
+                  {row.productName}
+                  <span className="block text-xs text-muted-foreground">
+                    {row.number}
+                    {row.partnerName ? ` · ${row.partnerName}` : ""}
+                  </span>
+                </span>
+                <span className="tabular-nums">{qtyFmt(row.qty)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="mb-4 flex flex-col gap-3">
         <div className="relative max-w-md">

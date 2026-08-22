@@ -6,6 +6,7 @@ import { APP_NAME, COMPANY } from "@/lib/erp/labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const Route = createFileRoute("/login")({ component: Login });
 
@@ -41,7 +42,10 @@ function Login() {
   }
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-background px-4 py-10">
+    <main className="relative grid min-h-dvh place-items-center bg-background px-4 py-10">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <p className="font-display text-3xl tracking-tight">{APP_NAME}</p>

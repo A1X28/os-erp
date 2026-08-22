@@ -19,16 +19,17 @@ import { StatusBadge } from "@/components/erp/status-badge";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
 import {
   deleteDraft,
+  followOn,
   getDocument,
   listPartners,
   listProducts,
   listWarehouses,
   postDocument,
   saveDocument,
-  shipOrder,
+  setInTransit,
   unpostDocument,
 } from "@/lib/erp/server";
-import { DOC_TYPE_LABEL } from "@/lib/erp/labels";
+import { DOC_TYPE_LABEL, FOLLOW_LABEL, FOLLOW_TO, BUYER_DOC, SUPPLIER_DOC } from "@/lib/erp/labels";
 import { formatDate, money, num, qtyFmt, todayIso, vatIncluded } from "@/lib/erp/format";
 import type { DocType, DocumentDetail, Product } from "@/lib/erp/types";
 import { cn } from "@/lib/utils";
@@ -44,7 +45,7 @@ type DraftLine = {
 };
 
 function defaultPrice(type: DocType, product: Product) {
-  if (type === "sale" || type === "order") return product.salePrice;
+  if (type === "sale" || type === "order" || type === "invoice") return product.salePrice;
   return product.purchasePrice;
 }
 
@@ -169,16 +170,15 @@ export function DocumentForm({
     queryFn: () => listProducts({ data: {} }),
   });
   const partners = useQuery({
-    queryKey: ["partners", "", type === "purchase" ? "supplier" : "buyer"],
+    queryKey: ["partners", "", SUPPLIER_DOC.includes(type) ? "supplier" : "buyer"],
     queryFn: () =>
       listPartners({
         data: {
-          kind:
-            type === "purchase"
-              ? "supplier"
-              : type === "sale" || type === "order"
-                ? "buyer"
-                : "all",
+          kind: SUPPLIER_DOC.includes(type)
+            ? "supplier"
+            : BUYER_DOC.includes(type)
+              ? "buyer"
+              : "all",
         },
       }),
   });
@@ -264,23 +264,46 @@ export function DocumentForm({
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const shipMut = useMutation({
-    mutationFn: () => shipOrder({ data: { id: initial!.id } }),
+  const followMut = useMutation({
+    mutationFn: (toType?: DocType) =>
+      followOn({ data: { id: initial!.id, toType } }),
     onSuccess: (res) => {
       invalidateAll();
-      toast.success("Отгрузка создана — проведите её, чтобы списать склад");
+      toast.success("Следующий документ создан");
       void navigate({ to: "/documents/$id", params: { id: String(res.id) } });
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const transitMut = useMutation({
+    mutationFn: () => setInTransit({ data: { id: initial!.id, value: true } }),
+    onSuccess: () => {
+      invalidateAll();
+      toast.success("Товар отмечен как в пути");
+      void qc.invalidateQueries({ queryKey: ["document", initial!.id] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const [payOpen, setPayOpen] = useState(false);
-  const needsPartner = type === "sale" || type === "purchase" || type === "order";
-  const canPay =
+  const needsPartner =
+    type === "sale" ||
+    type === "purchase" ||
+    type === "order" ||
+    type === "po" ||
+    type === "bill" ||
+    type === "invoice";
+  const moneyTypes = ["sale", "order", "purchase", "po", "bill", "invoice"];
+  const canPay = Boolean(initial) && moneyTypes.includes(type) && (initial?.dueAmount ?? 0) > 0;
+  const canFollow = Boolean(initial) && Boolean(FOLLOW_TO[type]) && !initial?.shipmentId;
+  const canShip =
     Boolean(initial) &&
-    (type === "sale" || type === "order" || type === "purchase") &&
-    (initial?.dueAmount ?? 0) > 0;
-  const canShip = Boolean(initial) && type === "order" && !initial?.shipmentId;
+    (type === "order" || type === "invoice") &&
+    !(initial?.childType === "sale");
+  const canTransit =
+    Boolean(initial) &&
+    (type === "po" || type === "bill") &&
+    !initial?.inTransit;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -299,7 +322,16 @@ export function DocumentForm({
             </p>
           ) : null}
         </div>
-        {initial ? <StatusBadge status={initial.status} /> : null}
+        {initial ? (
+          <div className="flex items-center gap-2">
+            {initial.inTransit ? (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                В пути
+              </span>
+            ) : null}
+            <StatusBadge status={initial.status} />
+          </div>
+        ) : null}
       </div>
 
       {initial?.sourceNumber ? (
@@ -309,7 +341,7 @@ export function DocumentForm({
       ) : null}
       {initial?.shipmentId && initial.shipmentNumber ? (
         <p className="-mt-3 mb-4 text-sm">
-          Отгрузка{" "}
+          {initial.childType ? DOC_TYPE_LABEL[initial.childType] : "Далее"}{" "}
           <button
             type="button"
             className="text-primary underline-offset-2 hover:underline"
@@ -420,7 +452,9 @@ export function DocumentForm({
           {needsPartner ? (
             <div className="grid gap-1.5 sm:col-span-2 lg:col-span-1">
               <Label>
-                {type === "purchase" ? "Поставщик" : "Покупатель"}
+                {type === "purchase" || type === "po" || type === "bill"
+                  ? "Поставщик"
+                  : "Покупатель"}
               </Label>
               <Select
                 value={counterpartyId}
@@ -663,7 +697,7 @@ export function DocumentForm({
             <p className="mt-1 font-display text-2xl tabular-nums tracking-tight">
               {money(amount)}
             </p>
-            {initial && (type === "sale" || type === "order" || type === "purchase") ? (
+            {initial && moneyTypes.includes(type) ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 Оплачено {money(initial.paidAmount)}
                 {initial.dueAmount > 0 ? ` · долг ${money(initial.dueAmount)}` : " · закрыто"}
@@ -673,11 +707,33 @@ export function DocumentForm({
           <div className="flex flex-wrap gap-2">
             {canPay ? (
               <Button variant="outline" onClick={() => setPayOpen(true)}>
-                {type === "purchase" ? "Оплатить поставщику" : "Принять оплату"}
+                {SUPPLIER_DOC.includes(type) ? "Оплатить поставщику" : "Принять оплату"}
               </Button>
             ) : null}
-            {canShip ? (
-              <Button variant="outline" onClick={() => shipMut.mutate()} disabled={shipMut.isPending}>
+            {canTransit ? (
+              <Button
+                variant="outline"
+                onClick={() => transitMut.mutate()}
+                disabled={transitMut.isPending}
+              >
+                Товар в пути
+              </Button>
+            ) : null}
+            {canFollow && FOLLOW_LABEL[type] ? (
+              <Button
+                variant="outline"
+                onClick={() => followMut.mutate(FOLLOW_TO[type])}
+                disabled={followMut.isPending}
+              >
+                {FOLLOW_LABEL[type]}
+              </Button>
+            ) : null}
+            {canShip && type === "order" ? (
+              <Button
+                variant="outline"
+                onClick={() => followMut.mutate("sale")}
+                disabled={followMut.isPending}
+              >
                 Отгрузить
               </Button>
             ) : null}
@@ -725,7 +781,7 @@ export function DocumentForm({
         </div>
       </div>
 
-      {initial && (type === "sale" || type === "order" || type === "purchase") && initial.payments.length > 0 ? (
+      {initial && moneyTypes.includes(type) && initial.payments.length > 0 ? (
         <div className="mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
           <h2 className="mb-3 font-display text-lg">Оплаты</h2>
           <ul className="space-y-2 text-sm">
@@ -747,7 +803,7 @@ export function DocumentForm({
       <PaymentDialog
         open={payOpen}
         onOpenChange={setPayOpen}
-        defaultKind={type === "purchase" ? "out" : "in"}
+        defaultKind={SUPPLIER_DOC.includes(type) ? "out" : "in"}
         partnerId={initial?.counterpartyId}
         documentId={initial?.id}
         suggestedAmount={initial?.dueAmount}

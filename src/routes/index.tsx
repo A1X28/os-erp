@@ -13,7 +13,7 @@ import {
 import { getDashboard } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { formatDateShort, money, pct, qtyFmt } from "@/lib/erp/format";
-import { COMPANY, PERIOD_LABEL, PROCESS_STEPS } from "@/lib/erp/labels";
+import { BUY_STEPS, COMPANY, PERIOD_LABEL, SELL_STEPS } from "@/lib/erp/labels";
 import type { PeriodKey } from "@/lib/erp/types";
 import { StatusBadge, TypeBadge } from "@/components/erp/status-badge";
 import { Button } from "@/components/ui/button";
@@ -77,27 +77,56 @@ function Dashboard() {
         </div>
       </div>
 
-      <ol className="mb-6 flex gap-1 overflow-x-auto pb-1">
-        {PROCESS_STEPS.map((step, i) => (
-          <li key={step.n} className="flex shrink-0 items-center gap-1">
-            <Link
-              to={step.to}
-              search={"search" in step ? step.search : undefined}
-              className="flex h-10 items-center gap-2 rounded-full bg-card px-3 text-sm shadow-[var(--shadow-border)]"
-            >
-              <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
-                {step.n}
-              </span>
-              {step.label}
-            </Link>
-            {i < PROCESS_STEPS.length - 1 ? (
-              <span className="px-0.5 text-muted-foreground" aria-hidden>
-                →
-              </span>
-            ) : null}
-          </li>
-        ))}
-      </ol>
+      <div className="mb-6 space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Закупка
+        </p>
+        <ol className="flex gap-1 overflow-x-auto pb-1">
+          {BUY_STEPS.map((step, i) => (
+            <li key={step.label} className="flex shrink-0 items-center gap-1">
+              <Link
+                to={step.to}
+                search={("search" in step ? step.search : {}) as never}
+                className="flex h-10 items-center gap-2 rounded-full bg-card px-3 text-sm shadow-[var(--shadow-border)]"
+              >
+                <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                  {step.n}
+                </span>
+                {step.label}
+              </Link>
+              {i < BUY_STEPS.length - 1 ? (
+                <span className="px-0.5 text-muted-foreground" aria-hidden>
+                  →
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+        <p className="pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Продажа
+        </p>
+        <ol className="flex gap-1 overflow-x-auto pb-1">
+          {SELL_STEPS.map((step, i) => (
+            <li key={step.label} className="flex shrink-0 items-center gap-1">
+              <Link
+                to={step.to}
+                search={("search" in step ? step.search : {}) as never}
+                className="flex h-10 items-center gap-2 rounded-full bg-card px-3 text-sm shadow-[var(--shadow-border)]"
+              >
+                <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                  {step.n}
+                </span>
+                {step.label}
+              </Link>
+              {i < SELL_STEPS.length - 1 ? (
+                <span className="px-0.5 text-muted-foreground" aria-hidden>
+                  →
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi

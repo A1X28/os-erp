@@ -9,6 +9,7 @@ import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { Providers } from "@/components/providers";
 import { AppShell } from "@/components/layout/app-shell";
 import { APP_NAME, APP_TAGLINE } from "@/lib/erp/labels";
+import { THEME_BOOT } from "@/lib/theme";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
@@ -18,7 +19,7 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: `${APP_NAME} — ${APP_TAGLINE}` },
       { name: "description", content: "Учёт торговли и склада вместо МойСклад" },
-      { name: "theme-color", content: "#1C4538" },
+      { name: "theme-color", content: "#f4f4f3" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
@@ -30,7 +31,7 @@ export const Route = createRootRoute({
       },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
@@ -40,6 +41,7 @@ export const Route = createRootRoute({
   component: () => (
     <html lang="ru" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <HeadContent />
       </head>
       <body className="antialiased">

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
 import { num } from "./format";
-import { DOC_TYPE_SHORT } from "./labels";
+import { DOC_TYPE_SHORT, FOLLOW_TO } from "./labels";
 import type {
   DashboardData,
   DocStatus,
@@ -24,8 +24,10 @@ import type {
   ReportData,
   StockMove,
   StockRow,
+  TransitRow,
   Warehouse,
 } from "./types";
+import { DOC_TYPES } from "./types";
 
 function periodSql(period: PeriodKey): { from: string; label: string } {
   const now = new Date();
@@ -405,7 +407,7 @@ export const listDocuments = createServerFn({ method: "GET" })
   .validator(
     z.object({
       q: z.string().optional(),
-      type: z.enum(["sale", "purchase", "transfer", "order", "writeoff", "all"]).optional(),
+      type: z.enum(["all", ...DOC_TYPES]).optional(),
       status: z.enum(["draft", "posted", "all"]).optional(),
     }),
   )
@@ -445,8 +447,9 @@ export const getDocument = createServerFn({ method: "GET" })
         wt.name as to_warehouse_name,
         c.name as partner_name,
         src.number as source_number,
-        (select s.id from documents s where s.source_id = d.id and s.type = 'sale' limit 1) as shipment_id,
-        (select s.number from documents s where s.source_id = d.id and s.type = 'sale' limit 1) as shipment_number
+        (select s.id from documents s where s.source_id = d.id order by s.id desc limit 1) as shipment_id,
+        (select s.number from documents s where s.source_id = d.id order by s.id desc limit 1) as shipment_number,
+        (select s.type from documents s where s.source_id = d.id order by s.id desc limit 1) as child_type
       from documents d
       left join warehouses w on w.id = d.warehouse_id
       left join warehouses wf on wf.id = d.from_warehouse_id
@@ -531,6 +534,8 @@ export const getDocument = createServerFn({ method: "GET" })
       payments,
       shipmentId: d.shipment_id == null ? null : num(d.shipment_id),
       shipmentNumber: d.shipment_number == null ? null : String(d.shipment_number),
+      childType: d.child_type == null ? null : (String(d.child_type) as DocType),
+      inTransit: Boolean(d.in_transit),
       lines,
       moves,
       amount: lines.reduce((s, l) => s + l.amount, 0),
@@ -545,7 +550,7 @@ const lineInput = z.object({
 
 const documentInput = z.object({
   id: z.number().optional(),
-  type: z.enum(["sale", "purchase", "transfer", "order", "writeoff"]),
+  type: z.enum(DOC_TYPES),
   docDate: z.string().min(8),
   warehouseId: z.number().nullable().optional(),
   fromWarehouseId: z.number().nullable().optional(),
@@ -718,6 +723,13 @@ export const postDocument = createServerFn({ method: "POST" })
     await sql`
       update documents set status = 'posted', posted_at = now() where id = ${data.id}
     `;
+    if (type === "purchase" && d.source_id != null) {
+      const srcId = num(d.source_id);
+      await sql`
+        update documents set in_transit = false
+        where id = ${srcId} or source_id = ${srcId} or id = ${data.id}
+      `;
+    }
     return { ok: true };
   });
 
@@ -1219,6 +1231,107 @@ export const deletePayment = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const followOn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      id: z.number(),
+      toType: z.enum(DOC_TYPES).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<{ id: number }> => {
+    const sql = await withDb();
+    const docs = await sql<Record<string, unknown>>`
+      select * from documents where id = ${data.id}
+    `;
+    if (!docs[0]) throw new Error("Документ не найден");
+    const src = docs[0];
+    const fromType = String(src.type) as DocType;
+    const toType = (data.toType ?? FOLLOW_TO[fromType]) as DocType | undefined;
+    if (!toType) throw new Error("Из этого документа дальше идти некуда");
+    const existing = await sql<{ id: number }>`
+      select id from documents where source_id = ${data.id} and type = ${toType} limit 1
+    `;
+    if (existing[0]) return { id: existing[0].id };
+    if (toType !== "transfer" && toType !== "writeoff" && !src.counterparty_id) {
+      throw new Error("Укажите контрагента");
+    }
+    if (toType !== "transfer" && !src.warehouse_id) {
+      throw new Error("Укажите склад");
+    }
+    const lines = await sql<{ product_id: number; qty: unknown; price: unknown; amount: unknown }>`
+      select product_id, qty, price, amount from document_lines where document_id = ${data.id} order by id
+    `;
+    if (lines.length === 0) throw new Error("Нет строк");
+    const number = await nextNumber(toType);
+    const inserted = await sql<{ id: number }>`
+      insert into documents (
+        type, number, doc_date, status,
+        warehouse_id, counterparty_id, comment, source_id
+      ) values (
+        ${toType}, ${number}, ${String(src.doc_date).slice(0, 10)}, 'draft',
+        ${src.warehouse_id == null ? null : num(src.warehouse_id)},
+        ${src.counterparty_id == null ? null : num(src.counterparty_id)},
+        ${`Из ${String(src.number)}`}, ${data.id}
+      )
+      returning id
+    `;
+    const id = inserted[0].id;
+    for (const line of lines) {
+      await sql`
+        insert into document_lines (document_id, product_id, qty, price, amount)
+        values (${id}, ${line.product_id}, ${num(line.qty)}, ${num(line.price)}, ${num(line.amount)})
+      `;
+    }
+    return { id };
+  });
+
+export const setInTransit = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number(), value: z.boolean() }))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const sql = await withDb();
+    const docs = await sql<{ type: string }>`select type from documents where id = ${data.id}`;
+    if (!docs[0]) throw new Error("Документ не найден");
+    if (docs[0].type !== "po" && docs[0].type !== "bill") {
+      throw new Error("В пути отмечают заказ поставщику или его счёт");
+    }
+    await sql`update documents set in_transit = ${data.value} where id = ${data.id}`;
+    return { ok: true };
+  });
+
+export const listInTransit = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<TransitRow[]> => {
+    const sql = await withDb();
+    const rows = await sql<Record<string, unknown>>`
+      select d.id as document_id, d.number, coalesce(c.name, '') as partner_name,
+             p.name as product_name, l.qty, l.amount
+      from documents d
+      join document_lines l on l.document_id = d.id
+      join products p on p.id = l.product_id
+      left join counterparties c on c.id = d.counterparty_id
+      where d.in_transit
+        and d.type in ('po', 'bill')
+        and not exists (
+          select 1 from documents r
+          where r.type = 'purchase' and r.status = 'posted'
+            and (r.source_id = d.id or r.source_id in (
+              select b.id from documents b where b.source_id = d.id
+            ))
+        )
+      order by d.doc_date, d.id, l.id
+    `;
+    return rows.map((r) => ({
+      documentId: num(r.document_id),
+      number: String(r.number),
+      partnerName: String(r.partner_name),
+      productName: String(r.product_name),
+      qty: num(r.qty),
+      amount: num(r.amount),
+    }));
+  });
+
 export const shipOrder = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ id: z.number() }))
@@ -1229,7 +1342,9 @@ export const shipOrder = createServerFn({ method: "POST" })
     `;
     if (!orders[0]) throw new Error("Заказ не найден");
     const order = orders[0];
-    if (String(order.type) !== "order") throw new Error("Отгрузить можно только заказ");
+    if (String(order.type) !== "order" && String(order.type) !== "invoice") {
+      throw new Error("Отгрузить можно заказ или счёт покупателю");
+    }
     const existing = await sql<{ id: number }>`
       select id from documents where source_id = ${data.id} and type = 'sale' limit 1
     `;

@@ -5,18 +5,24 @@ export const APP_NAME = "Ось";
 export const APP_TAGLINE = "Учёт торговли и склада";
 
 export const DOC_TYPE_LABEL: Record<DocType, string> = {
-  sale: "Отгрузка",
+  po: "Заказ поставщику",
+  bill: "Счёт поставщика",
   purchase: "Приёмка",
+  order: "Заказ покупателя",
+  invoice: "Счёт покупателю",
+  sale: "Отгрузка",
   transfer: "Перемещение",
-  order: "Заказ",
   writeoff: "Списание",
 };
 
 export const DOC_TYPE_SHORT: Record<DocType, string> = {
-  sale: "ОТГ",
+  po: "ЗП",
+  bill: "СЧС",
   purchase: "ПРМ",
+  order: "ЗПк",
+  invoice: "СЧП",
+  sale: "ОТГ",
   transfer: "ПРМЩ",
-  order: "ЗАК",
   writeoff: "СПС",
 };
 
@@ -58,10 +64,35 @@ export const PAY_METHOD_LABEL: Record<PayMethod, string> = {
   kaspi: "Kaspi",
 };
 
-export const PROCESS_STEPS = [
-  { n: 1, label: "Товар", hint: "Завести в номенклатуру", to: "/catalog" },
-  { n: 2, label: "Приёмка", hint: "Закупить у поставщика", to: "/documents/new", search: { type: "purchase" as const } },
-  { n: 3, label: "Заказ", hint: "Заявка покупателя", to: "/documents/new", search: { type: "order" as const } },
-  { n: 4, label: "Деньги", hint: "Получить оплату", to: "/money" },
-  { n: 5, label: "Отгрузка", hint: "Отдать товар", to: "/documents/new", search: { type: "sale" as const } },
+export const BUY_STEPS = [
+  { n: 1, label: "Товар", to: "/catalog" },
+  { n: 2, label: "Заказ пост.", to: "/documents/new", search: { type: "po" as const } },
+  { n: 3, label: "Счёт", to: "/documents/new", search: { type: "bill" as const } },
+  { n: 4, label: "Оплата", to: "/money", search: { new: "out" as const } },
+  { n: 5, label: "В пути", to: "/stock" },
+  { n: 6, label: "Приёмка", to: "/documents/new", search: { type: "purchase" as const } },
 ] as const;
+
+export const SELL_STEPS = [
+  { n: 1, label: "Заказ", to: "/documents/new", search: { type: "order" as const } },
+  { n: 2, label: "Счёт", to: "/documents/new", search: { type: "invoice" as const } },
+  { n: 3, label: "Оплата", to: "/money", search: { new: "in" as const } },
+  { n: 4, label: "Отгрузка", to: "/documents/new", search: { type: "sale" as const } },
+] as const;
+
+export const FOLLOW_LABEL: Partial<Record<DocType, string>> = {
+  po: "Получить счёт",
+  bill: "Принять товар",
+  order: "Выставить счёт",
+  invoice: "Отгрузить",
+};
+
+export const FOLLOW_TO: Partial<Record<DocType, DocType>> = {
+  po: "bill",
+  bill: "purchase",
+  order: "invoice",
+  invoice: "sale",
+};
+
+export const SUPPLIER_DOC: DocType[] = ["po", "bill", "purchase"];
+export const BUYER_DOC: DocType[] = ["order", "invoice", "sale"];
