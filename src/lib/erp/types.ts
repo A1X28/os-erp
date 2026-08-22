@@ -48,6 +48,13 @@ export type Partner = {
   phone: string;
 };
 
+export type Employee = {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+};
+
 export type DocumentLine = {
   id: number;
   productId: number;

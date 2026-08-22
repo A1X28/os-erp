@@ -9,6 +9,7 @@ import {
   ChartNoAxesCombined,
   Plus,
   Menu,
+  Users,
 } from "lucide-react";
 import { APP_NAME, COMPANY, DOC_TYPE_LABEL } from "@/lib/erp/labels";
 import type { DocType } from "@/lib/erp/types";
@@ -45,6 +46,10 @@ const GROUPS = [
   {
     label: "Аналитика",
     items: [{ to: "/reports", label: "Отчёты", icon: ChartNoAxesCombined }],
+  },
+  {
+    label: "Компания",
+    items: [{ to: "/staff", label: "Сотрудники", icon: Users }],
   },
 ] as const;
 

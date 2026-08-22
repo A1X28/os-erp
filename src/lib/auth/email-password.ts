@@ -8,3 +8,7 @@
  * Do NOT edit `server.ts` for this — that file is frozen pre-wired config.
  */
 export const emailAndPasswordEnabled = true;
+
+/** Used when Vercel project env has no BETTER_AUTH_SECRET yet. */
+export const deployedAuthSecret =
+  "93d7a1b97b431ae70d93ea17cdc17c3be87eac890c352b04bdbd47a2d6433eed";

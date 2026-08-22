@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { hashPassword } from "better-auth/crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
@@ -11,6 +13,7 @@ import type {
   DocumentDetail,
   DocumentLine,
   DocumentSummary,
+  Employee,
   Partner,
   PartnerKind,
   PeriodKey,
@@ -981,4 +984,62 @@ export const getReports = createServerFn({ method: "GET" })
         qty: num(r.qty),
       })),
     };
+  });
+
+export const listEmployees = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<Employee[]> => {
+    const sql = await withDb();
+    const rows = await sql<Record<string, unknown>>`
+      select id, name, email, "createdAt"
+      from "user"
+      order by "createdAt" asc
+    `;
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name ?? ""),
+      email: String(r.email ?? ""),
+      createdAt: String(r.createdAt ?? "").slice(0, 10),
+    }));
+  });
+
+export const createEmployee = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      name: z.string().trim().min(1),
+      email: z.string().trim().email(),
+      password: z.string().min(8),
+    }),
+  )
+  .handler(async ({ data }): Promise<Employee> => {
+    const sql = await withDb();
+    const email = data.email.toLowerCase();
+    const existing = await sql<{ n: number }>`
+      select count(*)::int as n from "user" where email = ${email}
+    `;
+    if ((existing[0]?.n ?? 0) > 0) {
+      throw new Error("Такой email уже есть");
+    }
+    const id = randomBytes(16).toString("hex");
+    const passwordHash = await hashPassword(data.password);
+    await sql`
+      insert into "user" (id, name, email, "emailVerified")
+      values (${id}, ${data.name}, ${email}, true)
+    `;
+    await sql`
+      insert into "account" (
+        id, "accountId", "providerId", "userId", password, "createdAt", "updatedAt"
+      )
+      values (
+        ${randomBytes(16).toString("hex")},
+        ${id},
+        'credential',
+        ${id},
+        ${passwordHash},
+        now(),
+        now()
+      )
+    `;
+    return { id, name: data.name, email, createdAt: new Date().toISOString().slice(0, 10) };
   });
