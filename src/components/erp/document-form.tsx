@@ -102,7 +102,7 @@ function ProductPicker({
                 <span>
                   <span className="block text-sm font-medium">{p.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {p.sku} · {p.unit} · остаток {qtyFmt(p.stock)}
+                    {p.sku} · {p.unit} · доступно {qtyFmt(p.available ?? p.stock)}
                   </span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -166,8 +166,11 @@ export function DocumentForm({
     queryFn: () => listWarehouses(),
   });
   const products = useQuery({
-    queryKey: ["products", "", ""],
-    queryFn: () => listProducts({ data: {} }),
+    queryKey: ["products", "", "", warehouseId],
+    queryFn: () =>
+      listProducts({
+        data: { warehouseId: warehouseId ? Number(warehouseId) : undefined },
+      }),
   });
   const partners = useQuery({
     queryKey: ["partners", "", SUPPLIER_DOC.includes(type) ? "supplier" : "buyer"],
@@ -227,7 +230,13 @@ export function DocumentForm({
       }),
     onSuccess: (res) => {
       invalidateAll();
-      toast.success(res.posted ? "Документ проведён" : "Черновик сохранён");
+      toast.success(
+        res.posted
+          ? type === "sale" || type === "purchase" || type === "writeoff" || type === "transfer"
+            ? "Документ проведён, остатки обновлены"
+            : "Документ проведён"
+          : "Черновик сохранён",
+      );
       if (!initial) {
         void navigate({ to: "/documents/$id", params: { id: String(res.id) } });
       }
@@ -239,7 +248,11 @@ export function DocumentForm({
     mutationFn: () => postDocument({ data: { id: initial!.id } }),
     onSuccess: () => {
       invalidateAll();
-      toast.success("Документ проведён, остатки обновлены");
+      toast.success(
+        type === "sale" || type === "purchase" || type === "writeoff" || type === "transfer"
+          ? "Документ проведён, остатки обновлены"
+          : "Документ проведён",
+      );
       void qc.invalidateQueries({ queryKey: ["document", initial!.id] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -296,10 +309,7 @@ export function DocumentForm({
   const moneyTypes = ["sale", "order", "purchase", "po", "bill", "invoice"];
   const canPay = Boolean(initial) && moneyTypes.includes(type) && (initial?.dueAmount ?? 0) > 0;
   const canFollow = Boolean(initial) && Boolean(FOLLOW_TO[type]) && !initial?.shipmentId;
-  const canShip =
-    Boolean(initial) &&
-    (type === "order" || type === "invoice") &&
-    !(initial?.childType === "sale");
+  const canShip = Boolean(initial) && type === "order" && !initial?.shipmentId;
   const canTransit =
     Boolean(initial) &&
     (type === "po" || type === "bill") &&

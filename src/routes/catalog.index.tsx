@@ -41,7 +41,7 @@ function CatalogPage() {
         <div>
           <h1 className="font-display text-3xl tracking-tight">Номенклатура</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Товары, цены и остаток по всем складам
+            Товары, цены и доступный остаток
           </p>
         </div>
         <Button onClick={() => setOpen(true)}>Новый товар</Button>
@@ -78,7 +78,7 @@ function CatalogPage() {
                 <th className="px-3 py-2 font-medium">Категория</th>
                 <th className="px-3 py-2 text-right font-medium">Закуп</th>
                 <th className="px-3 py-2 text-right font-medium">Продажа</th>
-                <th className="px-3 py-2 text-right font-medium">Остаток</th>
+                <th className="px-3 py-2 text-right font-medium">Доступно</th>
               </tr>
             </thead>
             <tbody>
@@ -104,10 +104,15 @@ function CatalogPage() {
                   <td
                     className={cn(
                       "px-3 py-2.5 text-right tabular-nums",
-                      p.stock <= p.minStock && "text-destructive",
+                      p.available <= p.minStock && "text-destructive",
                     )}
                   >
-                    {qtyFmt(p.stock)} {p.unit}
+                    {qtyFmt(p.available)} {p.unit}
+                    {p.reserved > 0 ? (
+                      <span className="block text-[11px] text-muted-foreground">
+                        склад {qtyFmt(p.stock)} · резерв {qtyFmt(p.reserved)}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -133,12 +138,12 @@ function CatalogPage() {
                   <span
                     className={cn(
                       "text-xs tabular-nums",
-                      p.stock <= p.minStock
+                      p.available <= p.minStock
                         ? "text-destructive"
                         : "text-muted-foreground",
                     )}
                   >
-                    {qtyFmt(p.stock)} {p.unit}
+                    {qtyFmt(p.available)} {p.unit}
                   </span>
                 </span>
               </Link>

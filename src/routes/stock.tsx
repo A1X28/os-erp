@@ -132,7 +132,9 @@ function StockPage() {
               <tr>
                 <th className="px-4 py-2 font-medium">Товар</th>
                 <th className="px-3 py-2 font-medium">Склад</th>
-                <th className="px-3 py-2 text-right font-medium">Кол-во</th>
+                <th className="px-3 py-2 text-right font-medium">На складе</th>
+                <th className="px-3 py-2 text-right font-medium">Резерв</th>
+                <th className="px-3 py-2 text-right font-medium">Доступно</th>
                 <th className="px-3 py-2 text-right font-medium">Сумма</th>
               </tr>
             </thead>
@@ -156,12 +158,20 @@ function StockPage() {
                     {r.warehouseName}
                   </td>
                   <td
-                    className={cn(
-                      "px-3 py-2.5 text-right tabular-nums",
-                      r.stockTotal <= r.minStock && "text-destructive",
-                    )}
+                    className="px-3 py-2.5 text-right tabular-nums text-muted-foreground"
                   >
                     {qtyFmt(r.qty)} {r.unit}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                    {r.reserved > 0 ? qtyFmt(r.reserved) : "—"}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-3 py-2.5 text-right tabular-nums",
+                      r.available <= r.minStock && "text-destructive",
+                    )}
+                  >
+                    {qtyFmt(r.available)} {r.unit}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
                     {money(r.value)}
@@ -188,12 +198,13 @@ function StockPage() {
                 <span
                   className={cn(
                     "text-right text-sm tabular-nums",
-                    r.stockTotal <= r.minStock && "text-destructive",
+                    r.available <= r.minStock && "text-destructive",
                   )}
                 >
-                  {qtyFmt(r.qty)} {r.unit}
+                  {qtyFmt(r.available)} {r.unit}
                   <span className="block text-xs text-muted-foreground">
-                    {money(r.value)}
+                    склад {qtyFmt(r.qty)}
+                    {r.reserved > 0 ? ` · резерв ${qtyFmt(r.reserved)}` : ""}
                   </span>
                 </span>
               </Link>

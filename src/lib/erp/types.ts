@@ -42,6 +42,9 @@ export type Product = {
   barcode: string | null;
   isActive: boolean;
   stock: number;
+  reserved: number;
+  available: number;
+  incoming: number;
 };
 
 export type Partner = {
@@ -149,6 +152,9 @@ export type StockRow = {
   warehouseId: number;
   warehouseName: string;
   qty: number;
+  reserved: number;
+  available: number;
+  incoming: number;
   value: number;
   stockTotal: number;
 };

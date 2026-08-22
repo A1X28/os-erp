@@ -5,6 +5,12 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
 import { num } from "./format";
+import {
+  availableQty,
+  findSaleInChain,
+  notEnough,
+  shippedInChain,
+} from "./stock";
 import { DOC_TYPE_SHORT, FOLLOW_TO } from "./labels";
 import type {
   DashboardData,
@@ -90,6 +96,9 @@ function mapProduct(r: Record<string, unknown>): Product {
     barcode: r.barcode == null ? null : String(r.barcode),
     isActive: r.is_active === false ? false : true,
     stock: num(r.stock),
+    reserved: num(r.reserved),
+    available: num(r.available ?? num(r.stock) - num(r.reserved)),
+    incoming: num(r.incoming),
   };
 }
 
@@ -161,18 +170,66 @@ export const listProducts = createServerFn({ method: "GET" })
     z.object({
       q: z.string().optional(),
       category: z.string().optional(),
+      warehouseId: z.number().optional(),
     }),
   )
   .middleware([authMiddleware]).handler(async ({ data }): Promise<Product[]> => {
     const sql = await withDb();
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const category = data.category?.trim() || null;
+    const warehouseId = data.warehouseId ?? null;
     const rows = await sql<Record<string, unknown>>`
-      select p.*, coalesce(s.stock, 0) as stock
+      select p.*,
+        coalesce(h.qty, 0) as stock,
+        coalesce(r.reserved, 0) as reserved,
+        coalesce(i.incoming, 0) as incoming,
+        greatest(coalesce(h.qty, 0) - coalesce(r.reserved, 0), 0) as available
       from products p
       left join (
-        select product_id, sum(qty) as stock from stock_moves group by product_id
-      ) s on s.product_id = p.id
+        select product_id, sum(qty) as qty
+        from stock_moves
+        where (${warehouseId}::int is null or warehouse_id = ${warehouseId})
+        group by product_id
+      ) h on h.product_id = p.id
+      left join (
+        select l.product_id,
+          sum(greatest(l.qty - coalesce(ship.qty, 0), 0)) as reserved
+        from documents d
+        join document_lines l on l.document_id = d.id
+        left join lateral (
+          select coalesce(sum(ls.qty), 0) as qty
+          from documents s
+          join document_lines ls
+            on ls.document_id = s.id and ls.product_id = l.product_id
+          where s.type = 'sale' and s.status = 'posted'
+            and (
+              s.source_id = d.id
+              or s.source_id in (select inv.id from documents inv where inv.source_id = d.id)
+            )
+        ) ship on true
+        where d.status = 'posted'
+          and (${warehouseId}::int is null or d.warehouse_id = ${warehouseId})
+          and (
+            d.type = 'order'
+            or (d.type = 'invoice' and d.source_id is null)
+          )
+        group by l.product_id
+      ) r on r.product_id = p.id
+      left join (
+        select l.product_id, sum(l.qty) as incoming
+        from documents d
+        join document_lines l on l.document_id = d.id
+        where d.in_transit and d.type in ('po', 'bill')
+          and (${warehouseId}::int is null or d.warehouse_id = ${warehouseId})
+          and not exists (
+            select 1 from documents rec
+            where rec.type = 'purchase' and rec.status = 'posted'
+              and (rec.source_id = d.id or rec.source_id in (
+                select b.id from documents b where b.source_id = d.id
+              ))
+          )
+        group by l.product_id
+      ) i on i.product_id = p.id
       where (${q}::text is null
         or lower(p.name) like ${q}
         or lower(p.sku) like ${q}
@@ -366,6 +423,9 @@ export const listStock = createServerFn({ method: "GET" })
         p.purchase_price, p.sale_price,
         w.id as warehouse_id, w.name as warehouse_name,
         coalesce(sum(m.qty), 0) as qty,
+        coalesce(r.reserved, 0) as reserved,
+        coalesce(i.incoming, 0) as incoming,
+        greatest(coalesce(sum(m.qty), 0) - coalesce(r.reserved, 0), 0) as available,
         coalesce((
           select sum(m2.qty) from stock_moves m2 where m2.product_id = p.id
         ), 0) as stock_total
@@ -373,10 +433,47 @@ export const listStock = createServerFn({ method: "GET" })
       cross join warehouses w
       left join stock_moves m
         on m.product_id = p.id and m.warehouse_id = w.id
+      left join (
+        select l.product_id, d.warehouse_id,
+          sum(greatest(l.qty - coalesce(ship.qty, 0), 0)) as reserved
+        from documents d
+        join document_lines l on l.document_id = d.id
+        left join lateral (
+          select coalesce(sum(ls.qty), 0) as qty
+          from documents s
+          join document_lines ls
+            on ls.document_id = s.id and ls.product_id = l.product_id
+          where s.type = 'sale' and s.status = 'posted'
+            and (
+              s.source_id = d.id
+              or s.source_id in (select inv.id from documents inv where inv.source_id = d.id)
+            )
+        ) ship on true
+        where d.status = 'posted'
+          and (
+            d.type = 'order'
+            or (d.type = 'invoice' and d.source_id is null)
+          )
+        group by l.product_id, d.warehouse_id
+      ) r on r.product_id = p.id and r.warehouse_id = w.id
+      left join (
+        select l.product_id, d.warehouse_id, sum(l.qty) as incoming
+        from documents d
+        join document_lines l on l.document_id = d.id
+        where d.in_transit and d.type in ('po', 'bill')
+          and not exists (
+            select 1 from documents rec
+            where rec.type = 'purchase' and rec.status = 'posted'
+              and (rec.source_id = d.id or rec.source_id in (
+                select b.id from documents b where b.source_id = d.id
+              ))
+          )
+        group by l.product_id, d.warehouse_id
+      ) i on i.product_id = p.id and i.warehouse_id = w.id
       where (${warehouseId}::int is null or w.id = ${warehouseId})
         and (${q}::text is null or lower(p.name) like ${q} or lower(p.sku) like ${q})
       group by p.id, p.sku, p.name, p.unit, p.category, p.min_stock,
-               p.purchase_price, p.sale_price, w.id, w.name
+               p.purchase_price, p.sale_price, w.id, w.name, r.reserved, i.incoming
       having (${lowOnly} = false or coalesce((
         select sum(m3.qty) from stock_moves m3 where m3.product_id = p.id
       ), 0) <= p.min_stock)
@@ -385,6 +482,9 @@ export const listStock = createServerFn({ method: "GET" })
     return rows.map((r) => {
       const qty = num(r.qty);
       const purchasePrice = num(r.purchase_price);
+      const reserved = num(r.reserved);
+      const incoming = num(r.incoming);
+      const available = num(r.available);
       return {
         productId: num(r.product_id),
         sku: String(r.sku),
@@ -397,6 +497,9 @@ export const listStock = createServerFn({ method: "GET" })
         warehouseId: num(r.warehouse_id),
         warehouseName: String(r.warehouse_name),
         qty,
+        reserved,
+        available,
+        incoming,
         value: qty * purchasePrice,
         stockTotal: num(r.stock_total),
       };
@@ -659,23 +762,24 @@ export const postDocument = createServerFn({ method: "POST" })
     const warehouseId = d.warehouse_id == null ? null : num(d.warehouse_id);
     const fromId = d.from_warehouse_id == null ? null : num(d.from_warehouse_id);
     const toId = d.to_warehouse_id == null ? null : num(d.to_warehouse_id);
+    const sourceId = d.source_id == null ? null : num(d.source_id);
 
-    async function stockAt(productId: number, whId: number): Promise<number> {
-      const rows = await sql<{ qty: unknown }>`
-        select coalesce(sum(qty), 0) as qty
-        from stock_moves
-        where product_id = ${productId} and warehouse_id = ${whId}
-      `;
-      return num(rows[0]?.qty);
-    }
+    if (type === "purchase" && !warehouseId) throw new Error("Не указан склад");
 
     if (type === "sale" || type === "writeoff") {
       if (!warehouseId) throw new Error("Не указан склад");
       const missing: string[] = [];
       for (const line of lines) {
-        const have = await stockAt(line.product_id, warehouseId);
-        if (have < num(line.qty)) {
-          missing.push(`${line.name} (нужно ${num(line.qty)}, есть ${have})`);
+        const snap = await availableQty(
+          sql,
+          line.product_id,
+          warehouseId,
+          type === "sale" ? sourceId : null,
+        );
+        if (notEnough(snap.available, num(line.qty))) {
+          missing.push(
+            `${line.name} (нужно ${num(line.qty)}, доступно ${snap.available}, на складе ${snap.onHand}${snap.reserved ? `, в резерве ${snap.reserved}` : ""})`,
+          );
         }
       }
       if (missing.length) {
@@ -686,9 +790,11 @@ export const postDocument = createServerFn({ method: "POST" })
       if (!fromId || !toId) throw new Error("Не указаны склады перемещения");
       const missing: string[] = [];
       for (const line of lines) {
-        const have = await stockAt(line.product_id, fromId);
-        if (have < num(line.qty)) {
-          missing.push(`${line.name} (нужно ${num(line.qty)}, есть ${have})`);
+        const snap = await availableQty(sql, line.product_id, fromId, null);
+        if (notEnough(snap.available, num(line.qty))) {
+          missing.push(
+            `${line.name} (нужно ${num(line.qty)}, доступно ${snap.available})`,
+          );
         }
       }
       if (missing.length) {
@@ -1249,6 +1355,10 @@ export const followOn = createServerFn({ method: "POST" })
     const fromType = String(src.type) as DocType;
     const toType = (data.toType ?? FOLLOW_TO[fromType]) as DocType | undefined;
     if (!toType) throw new Error("Из этого документа дальше идти некуда");
+    if (toType === "sale") {
+      const already = await findSaleInChain(sql, data.id);
+      if (already) return { id: already };
+    }
     const existing = await sql<{ id: number }>`
       select id from documents where source_id = ${data.id} and type = ${toType} limit 1
     `;
@@ -1277,11 +1387,24 @@ export const followOn = createServerFn({ method: "POST" })
       returning id
     `;
     const id = inserted[0].id;
+    let copied = 0;
     for (const line of lines) {
+      let qty = num(line.qty);
+      if (toType === "sale") {
+        const shipped = await shippedInChain(sql, data.id, line.product_id);
+        qty = Math.max(0, Math.round((qty - shipped) * 1000) / 1000);
+        if (qty <= 0) continue;
+      }
+      const amount = Math.round(qty * num(line.price) * 100) / 100;
       await sql`
         insert into document_lines (document_id, product_id, qty, price, amount)
-        values (${id}, ${line.product_id}, ${num(line.qty)}, ${num(line.price)}, ${num(line.amount)})
+        values (${id}, ${line.product_id}, ${qty}, ${num(line.price)}, ${amount})
       `;
+      copied += 1;
+    }
+    if (copied === 0) {
+      await sql`delete from documents where id = ${id}`;
+      throw new Error("По этому заказу уже всё отгружено");
     }
     return { id };
   });
@@ -1336,43 +1459,5 @@ export const shipOrder = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ id: z.number() }))
   .handler(async ({ data }): Promise<{ id: number }> => {
-    const sql = await withDb();
-    const orders = await sql<Record<string, unknown>>`
-      select * from documents where id = ${data.id}
-    `;
-    if (!orders[0]) throw new Error("Заказ не найден");
-    const order = orders[0];
-    if (String(order.type) !== "order" && String(order.type) !== "invoice") {
-      throw new Error("Отгрузить можно заказ или счёт покупателю");
-    }
-    const existing = await sql<{ id: number }>`
-      select id from documents where source_id = ${data.id} and type = 'sale' limit 1
-    `;
-    if (existing[0]) return { id: existing[0].id };
-    if (!order.counterparty_id) throw new Error("У заказа нет покупателя");
-    if (!order.warehouse_id) throw new Error("У заказа нет склада");
-    const lines = await sql<{ product_id: number; qty: unknown; price: unknown; amount: unknown }>`
-      select product_id, qty, price, amount from document_lines where document_id = ${data.id} order by id
-    `;
-    if (lines.length === 0) throw new Error("В заказе нет строк");
-    const number = await nextNumber("sale");
-    const inserted = await sql<{ id: number }>`
-      insert into documents (
-        type, number, doc_date, status,
-        warehouse_id, counterparty_id, comment, source_id
-      ) values (
-        'sale', ${number}, ${String(order.doc_date).slice(0, 10)}, 'draft',
-        ${num(order.warehouse_id)}, ${num(order.counterparty_id)},
-        ${`Из заказа ${String(order.number)}`}, ${data.id}
-      )
-      returning id
-    `;
-    const saleId = inserted[0].id;
-    for (const line of lines) {
-      await sql`
-        insert into document_lines (document_id, product_id, qty, price, amount)
-        values (${saleId}, ${line.product_id}, ${num(line.qty)}, ${num(line.price)}, ${num(line.amount)})
-      `;
-    }
-    return { id: saleId };
+    return followOn({ data: { id: data.id, toType: "sale" } });
   });
