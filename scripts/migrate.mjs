@@ -18,13 +18,22 @@ import { dirname, join } from "node:path";
 import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = [
+  process.env.DATABASE_URL,
+  process.env.POSTGRES_URL,
+  process.env.POSTGRES_PRISMA_URL,
+  process.env.DATABASE_URL_UNPOOLED,
+]
+  .map((v) => (typeof v === "string" ? v.trim() : ""))
+  .find(Boolean);
 if (!databaseUrl) {
   console.log(
-    "[migrate] DATABASE_URL not set — skipping (the PGLite fallback migrates itself).",
+    "[migrate] DATABASE_URL/POSTGRES_URL not set — skipping (the PGLite fallback migrates itself).",
   );
   process.exit(0);
 }
+
+console.log("[migrate] using Postgres (env present)");
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
