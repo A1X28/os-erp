@@ -219,7 +219,8 @@ export const listProducts = createServerFn({ method: "GET" })
         select l.product_id, sum(l.qty) as incoming
         from documents d
         join document_lines l on l.document_id = d.id
-        where d.in_transit and d.type in ('po', 'bill')
+        where d.type in ('po', 'bill')
+          and (d.status = 'posted' or d.in_transit)
           and (${warehouseId}::int is null or d.warehouse_id = ${warehouseId})
           and not exists (
             select 1 from documents rec
@@ -253,17 +254,62 @@ export const getProduct = createServerFn({ method: "GET" })
       where p.id = ${data.id}
     `;
     if (!rows[0]) throw new Error("Товар не найден");
-    const product = mapProduct(rows[0]);
+    const product = mapProduct({
+      ...rows[0],
+      reserved: 0,
+      incoming: 0,
+      available: num(rows[0].stock),
+    });
     const byWh = await sql<{
       warehouse_id: number;
       name: string;
       city: string;
       qty: unknown;
+      reserved: unknown;
+      incoming: unknown;
     }>`
-      select w.id as warehouse_id, w.name, w.city, coalesce(sum(m.qty), 0) as qty
+      select w.id as warehouse_id, w.name, w.city,
+        coalesce((
+          select sum(m.qty) from stock_moves m
+          where m.warehouse_id = w.id and m.product_id = ${data.id}
+        ), 0) as qty,
+        coalesce((
+          select sum(greatest(l.qty - coalesce(ship.qty, 0), 0))
+          from documents d
+          join document_lines l on l.document_id = d.id
+          left join lateral (
+            select coalesce(sum(ls.qty), 0) as qty
+            from documents s
+            join document_lines ls
+              on ls.document_id = s.id and ls.product_id = l.product_id
+            where s.type = 'sale' and s.status = 'posted'
+              and (
+                s.source_id = d.id
+                or s.source_id in (select inv.id from documents inv where inv.source_id = d.id)
+              )
+          ) ship on true
+          where d.status = 'posted'
+            and d.warehouse_id = w.id
+            and l.product_id = ${data.id}
+            and (d.type = 'order' or (d.type = 'invoice' and d.source_id is null))
+        ), 0) as reserved,
+        coalesce((
+          select sum(l.qty)
+          from documents d
+          join document_lines l on l.document_id = d.id
+          where d.type in ('po', 'bill')
+            and (d.status = 'posted' or d.in_transit)
+            and d.warehouse_id = w.id
+            and l.product_id = ${data.id}
+            and not exists (
+              select 1 from documents rec
+              where rec.type = 'purchase' and rec.status = 'posted'
+                and (rec.source_id = d.id or rec.source_id in (
+                  select b.id from documents b where b.source_id = d.id
+                ))
+            )
+        ), 0) as incoming
       from warehouses w
-      left join stock_moves m on m.warehouse_id = w.id and m.product_id = ${data.id}
-      group by w.id, w.name, w.city
       order by w.id
     `;
     const moves = await sql<Record<string, unknown>>`
@@ -275,14 +321,27 @@ export const getProduct = createServerFn({ method: "GET" })
       order by d.doc_date desc, m.id desc
       limit 40
     `;
+    const byWarehouse = byWh.map((r) => ({
+      warehouseId: num(r.warehouse_id),
+      name: r.name,
+      city: r.city,
+      qty: num(r.qty),
+      reserved: num(r.reserved),
+      incoming: num(r.incoming),
+      available: Math.max(0, num(r.qty) - num(r.reserved)),
+    }));
+    const stock = byWarehouse.reduce((s, w) => s + w.qty, 0);
+    const reserved = byWarehouse.reduce((s, w) => s + w.reserved, 0);
+    const incoming = byWarehouse.reduce((s, w) => s + w.incoming, 0);
     return {
-      product,
-      byWarehouse: byWh.map((r) => ({
-        warehouseId: num(r.warehouse_id),
-        name: r.name,
-        city: r.city,
-        qty: num(r.qty),
-      })),
+      product: {
+        ...product,
+        stock,
+        reserved,
+        incoming,
+        available: Math.max(0, stock - reserved),
+      },
+      byWarehouse,
       moves: moves.map((r) => ({
         id: num(r.id),
         qty: num(r.qty),
@@ -460,7 +519,8 @@ export const listStock = createServerFn({ method: "GET" })
         select l.product_id, d.warehouse_id, sum(l.qty) as incoming
         from documents d
         join document_lines l on l.document_id = d.id
-        where d.in_transit and d.type in ('po', 'bill')
+        where d.type in ('po', 'bill')
+          and (d.status = 'posted' or d.in_transit)
           and not exists (
             select 1 from documents rec
             where rec.type = 'purchase' and rec.status = 'posted'
@@ -778,7 +838,11 @@ export const postDocument = createServerFn({ method: "POST" })
         );
         if (notEnough(snap.available, num(line.qty))) {
           missing.push(
-            `${line.name} (нужно ${num(line.qty)}, доступно ${snap.available}, на складе ${snap.onHand}${snap.reserved ? `, в резерве ${snap.reserved}` : ""})`,
+            `${line.name} (нужно ${num(line.qty)}, на складе доступно ${snap.available}${
+              snap.incoming > 0
+                ? `, в пути ${snap.incoming} — отгрузить после приёмки`
+                : ""
+            }${snap.reserved ? `, резерв ${snap.reserved}` : ""})`,
           );
         }
       }
@@ -1429,13 +1493,15 @@ export const listInTransit = createServerFn({ method: "GET" })
     const sql = await withDb();
     const rows = await sql<Record<string, unknown>>`
       select d.id as document_id, d.number, coalesce(c.name, '') as partner_name,
-             p.name as product_name, l.qty, l.amount
+             coalesce(w.name, '') as warehouse_name,
+             p.name as product_name, l.qty, l.amount, d.in_transit
       from documents d
       join document_lines l on l.document_id = d.id
       join products p on p.id = l.product_id
       left join counterparties c on c.id = d.counterparty_id
-      where d.in_transit
-        and d.type in ('po', 'bill')
+      left join warehouses w on w.id = d.warehouse_id
+      where d.type in ('po', 'bill')
+        and (d.status = 'posted' or d.in_transit)
         and not exists (
           select 1 from documents r
           where r.type = 'purchase' and r.status = 'posted'
@@ -1443,15 +1509,17 @@ export const listInTransit = createServerFn({ method: "GET" })
               select b.id from documents b where b.source_id = d.id
             ))
         )
-      order by d.doc_date, d.id, l.id
+      order by d.in_transit desc, d.doc_date, d.id, l.id
     `;
     return rows.map((r) => ({
       documentId: num(r.document_id),
       number: String(r.number),
       partnerName: String(r.partner_name),
+      warehouseName: String(r.warehouse_name ?? ""),
       productName: String(r.product_name),
       qty: num(r.qty),
       amount: num(r.amount),
+      inTransit: Boolean(r.in_transit),
     }));
   });
 

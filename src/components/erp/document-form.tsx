@@ -52,9 +52,11 @@ function defaultPrice(type: DocType, product: Product) {
 function ProductPicker({
   products,
   onPick,
+  forShipment,
 }: {
   products: Product[];
   onPick: (p: Product) => void;
+  forShipment: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -102,7 +104,11 @@ function ProductPicker({
                 <span>
                   <span className="block text-sm font-medium">{p.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {p.sku} · {p.unit} · доступно {qtyFmt(p.available ?? p.stock)}
+                    {p.sku} · {p.unit}
+                    {forShipment
+                      ? ` · доступно ${qtyFmt(p.available)}`
+                      : ` · можно продать ${qtyFmt(p.available + p.incoming)}`}
+                    {p.incoming > 0 ? ` · в пути ${qtyFmt(p.incoming)}` : ""}
                   </span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -504,6 +510,7 @@ export function DocumentForm({
           {!locked ? (
             <ProductPicker
               products={products.data ?? []}
+              forShipment={type === "sale" || type === "writeoff"}
               onPick={(p) =>
                 setLines((prev) => [
                   ...prev,

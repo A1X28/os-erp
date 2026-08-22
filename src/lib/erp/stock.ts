@@ -144,8 +144,8 @@ export async function incomingQty(
     select coalesce(sum(l.qty), 0) as qty
     from documents d
     join document_lines l on l.document_id = d.id
-    where d.in_transit
-      and d.type in ('po', 'bill')
+    where d.type in ('po', 'bill')
+      and (d.status = 'posted' or d.in_transit)
       and d.warehouse_id = ${warehouseId}
       and l.product_id = ${productId}
       and not exists (

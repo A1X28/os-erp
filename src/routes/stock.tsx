@@ -70,9 +70,14 @@ function StockPage() {
         </div>
       </div>
 
-      {(transit.data ?? []).length > 0 ? (
-        <section className="mb-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
-          <h2 className="mb-3 font-display text-lg">В пути</h2>
+      <section className="mb-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
+        <h2 className="mb-1 font-display text-lg">В пути</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Заказано у поставщика и ещё не принято. Можно продавать заказом — отгрузить после приёмки.
+        </p>
+        {(transit.data ?? []).length === 0 ? (
+          <p className="text-sm text-muted-foreground">Сейчас ничего не едет.</p>
+        ) : (
           <ul className="space-y-2 text-sm">
             {(transit.data ?? []).map((row, i) => (
               <li
@@ -82,16 +87,24 @@ function StockPage() {
                 <span>
                   {row.productName}
                   <span className="block text-xs text-muted-foreground">
-                    {row.number}
+                    <Link
+                      to="/documents/$id"
+                      params={{ id: String(row.documentId) }}
+                      className="hover:underline"
+                    >
+                      {row.number}
+                    </Link>
                     {row.partnerName ? ` · ${row.partnerName}` : ""}
+                    {row.warehouseName ? ` · ${row.warehouseName}` : ""}
+                    {row.inTransit ? " · едет" : " · ожидание"}
                   </span>
                 </span>
                 <span className="tabular-nums">{qtyFmt(row.qty)}</span>
               </li>
             ))}
           </ul>
-        </section>
-      ) : null}
+        )}
+      </section>
 
       <div className="mb-4 flex flex-col gap-3">
         <div className="relative max-w-md">
@@ -135,6 +148,7 @@ function StockPage() {
                 <th className="px-3 py-2 text-right font-medium">На складе</th>
                 <th className="px-3 py-2 text-right font-medium">Резерв</th>
                 <th className="px-3 py-2 text-right font-medium">Доступно</th>
+                <th className="px-3 py-2 text-right font-medium">В пути</th>
                 <th className="px-3 py-2 text-right font-medium">Сумма</th>
               </tr>
             </thead>
@@ -173,6 +187,9 @@ function StockPage() {
                   >
                     {qtyFmt(r.available)} {r.unit}
                   </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                    {r.incoming > 0 ? `${qtyFmt(r.incoming)} ${r.unit}` : "—"}
+                  </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
                     {money(r.value)}
                   </td>
@@ -205,6 +222,7 @@ function StockPage() {
                   <span className="block text-xs text-muted-foreground">
                     склад {qtyFmt(r.qty)}
                     {r.reserved > 0 ? ` · резерв ${qtyFmt(r.reserved)}` : ""}
+                    {r.incoming > 0 ? ` · в пути ${qtyFmt(r.incoming)}` : ""}
                   </span>
                 </span>
               </Link>

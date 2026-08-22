@@ -163,9 +163,11 @@ export type TransitRow = {
   documentId: number;
   number: string;
   partnerName: string;
+  warehouseName: string;
   productName: string;
   qty: number;
   amount: number;
+  inTransit: boolean;
 };
 
 export type DashboardData = {

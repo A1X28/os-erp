@@ -51,15 +51,23 @@ function ProductDetailPage() {
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Закуп" value={money(product.purchasePrice)} />
         <Stat label="Продажа" value={money(product.salePrice)} />
         <Stat
-          label="Остаток"
-          value={`${qtyFmt(product.stock)} ${product.unit}`}
-          warn={product.stock <= product.minStock}
+          label="Доступно сейчас"
+          value={`${qtyFmt(product.available)} ${product.unit}`}
+          warn={product.available <= product.minStock}
+        />
+        <Stat
+          label="В пути"
+          value={`${qtyFmt(product.incoming)} ${product.unit}`}
         />
       </div>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Продать заказом можно {qtyFmt(product.available + product.incoming)} {product.unit}.
+        Отгрузить — только то, что уже на складе.
+      </p>
 
       <section className="mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
         <h2 className="mb-3 font-display text-lg">По складам</h2>
@@ -73,8 +81,14 @@ function ProductDetailPage() {
                 {w.name}
                 <span className="block text-xs text-muted-foreground">{w.city}</span>
               </span>
-              <span className="tabular-nums">
-                {qtyFmt(w.qty)} {product.unit}
+              <span className="text-right tabular-nums">
+                <span className="block">
+                  {qtyFmt(w.available ?? w.qty)} {product.unit}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  склад {qtyFmt(w.qty)}
+                  {w.incoming ? ` · в пути ${qtyFmt(w.incoming)}` : ""}
+                </span>
               </span>
             </li>
           ))}

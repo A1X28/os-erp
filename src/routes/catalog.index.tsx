@@ -79,6 +79,7 @@ function CatalogPage() {
                 <th className="px-3 py-2 text-right font-medium">Закуп</th>
                 <th className="px-3 py-2 text-right font-medium">Продажа</th>
                 <th className="px-3 py-2 text-right font-medium">Доступно</th>
+                <th className="px-3 py-2 text-right font-medium">В пути</th>
               </tr>
             </thead>
             <tbody>
@@ -114,6 +115,9 @@ function CatalogPage() {
                       </span>
                     ) : null}
                   </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                    {p.incoming > 0 ? `${qtyFmt(p.incoming)} ${p.unit}` : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -144,6 +148,7 @@ function CatalogPage() {
                     )}
                   >
                     {qtyFmt(p.available)} {p.unit}
+                    {p.incoming > 0 ? ` · в пути ${qtyFmt(p.incoming)}` : ""}
                   </span>
                 </span>
               </Link>
