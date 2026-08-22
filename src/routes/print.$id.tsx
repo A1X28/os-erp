@@ -1,19 +1,26 @@
 import { useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { DocumentPrint } from "@/components/erp/document-print";
-import { getDocument } from "@/lib/erp/server";
+import { getCompany, getDocument } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
+import { DEFAULT_COMPANY } from "@/lib/erp/types";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/print/$id")({
-  loader: ({ params }) =>
-    orGuest(getDocument({ data: { id: Number(params.id) } }), null),
+  loader: async ({ params }) => {
+    const id = Number(params.id);
+    const [doc, company] = await Promise.all([
+      orGuest(getDocument({ data: { id } }), null),
+      orGuest(getCompany(), DEFAULT_COMPANY),
+    ]);
+    return { doc, company };
+  },
   component: PrintPage,
   head: ({ loaderData }) => ({
     meta: [
       {
-        title: loaderData
-          ? `${loaderData.number} — печать`
+        title: loaderData?.doc
+          ? `${loaderData.doc.number} — печать`
           : "Печать документа",
       },
     ],
@@ -21,7 +28,7 @@ export const Route = createFileRoute("/print/$id")({
 });
 
 function PrintPage() {
-  const doc = Route.useLoaderData();
+  const { doc, company } = Route.useLoaderData();
 
   useEffect(() => {
     if (!doc) return;
@@ -43,7 +50,7 @@ function PrintPage() {
         </Button>
         <Button onClick={() => window.print()}>Печать / PDF</Button>
       </div>
-      <DocumentPrint doc={doc} />
+      <DocumentPrint doc={doc} company={company} />
     </div>
   );
 }

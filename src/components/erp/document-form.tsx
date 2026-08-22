@@ -20,6 +20,7 @@ import { PaymentDialog } from "@/components/erp/payment-dialog";
 import {
   deleteDraft,
   followOn,
+  getCompany,
   getDocument,
   listPartners,
   listProducts,
@@ -32,6 +33,7 @@ import {
 import { DOC_TYPE_LABEL, FOLLOW_LABEL, FOLLOW_TO, BUYER_DOC, SUPPLIER_DOC } from "@/lib/erp/labels";
 import { formatDate, money, num, qtyFmt, todayIso, vatIncluded } from "@/lib/erp/format";
 import type { DocType, DocumentDetail, Product } from "@/lib/erp/types";
+import { DEFAULT_COMPANY } from "@/lib/erp/types";
 import { cn } from "@/lib/utils";
 
 type DraftLine = {
@@ -192,6 +194,13 @@ export function DocumentForm({
       }),
   });
 
+  const company = useQuery({
+    queryKey: ["company"],
+    queryFn: () => getCompany(),
+    initialData: DEFAULT_COMPANY,
+  });
+  const profile = company.data ?? DEFAULT_COMPANY;
+
   const whList = warehouses.data ?? [];
   useEffect(() => {
     if (!warehouseId && whList.length && type !== "transfer") {
@@ -204,7 +213,7 @@ export function DocumentForm({
     () => lines.reduce((s, l) => s + l.qty * l.price, 0),
     [lines],
   );
-  const vat = vatIncluded(amount, 12);
+  const vat = profile.vatEnabled ? vatIncluded(amount, profile.vatRate) : 0;
 
   function invalidateAll() {
     void qc.invalidateQueries();
@@ -709,8 +718,14 @@ export function DocumentForm({
       <div className="sticky bottom-16 z-20 mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)] lg:bottom-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">в т.ч. НДС 12%</p>
-            <p className="text-sm tabular-nums text-muted-foreground">{money(vat)}</p>
+            {profile.vatEnabled ? (
+              <>
+                <p className="text-xs text-muted-foreground">в т.ч. НДС {profile.vatRate}%</p>
+                <p className="text-sm tabular-nums text-muted-foreground">{money(vat)}</p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Без НДС</p>
+            )}
             <p className="mt-1 font-display text-2xl tabular-nums tracking-tight">
               {money(amount)}
             </p>

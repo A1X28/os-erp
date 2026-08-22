@@ -37,8 +37,9 @@ import type {
   Warehouse,
   PeriodMonth,
   PeriodBoard,
+  CompanyProfile,
 } from "./types";
-import { DOC_TYPES } from "./types";
+import { DOC_TYPES, DEFAULT_COMPANY } from "./types";
 
 function periodSql(period: PeriodKey): { from: string; label: string } {
   const now = new Date();
@@ -1782,5 +1783,72 @@ export const reopenPeriod = createServerFn({ method: "POST" })
         [context.userId, JSON.stringify({ year: data.year, month: data.month })],
       );
       return { ok: true as const };
+    }, context.userId);
+  });
+
+function mapCompany(r: Record<string, unknown> | undefined): CompanyProfile {
+  if (!r) return { ...DEFAULT_COMPANY };
+  return {
+    name: String(r.name ?? DEFAULT_COMPANY.name),
+    bin: String(r.bin ?? ""),
+    address: String(r.address ?? ""),
+    phone: String(r.phone ?? ""),
+    bank: String(r.bank ?? ""),
+    iik: String(r.iik ?? ""),
+    bik: String(r.bik ?? ""),
+    vatEnabled: Boolean(r.vat_enabled),
+    vatRate: num(r.vat_rate),
+  };
+}
+
+export const getCompany = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<CompanyProfile> => {
+    const sql = await withDb();
+    const rows = await sql<Record<string, unknown>>`
+      select name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate
+      from company_profile where id = 1
+    `;
+    return mapCompany(rows[0]);
+  });
+
+export const saveCompany = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      name: z.string().min(1),
+      bin: z.string(),
+      address: z.string(),
+      phone: z.string(),
+      bank: z.string(),
+      iik: z.string(),
+      bik: z.string(),
+      vatEnabled: z.boolean(),
+      vatRate: z.number().min(0).max(100),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<CompanyProfile> => {
+    return withTx(async (sql) => {
+      const rows = await sql<Record<string, unknown>>`
+        insert into company_profile (
+          id, name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate
+        ) values (
+          1, ${data.name.trim()}, ${data.bin.trim()}, ${data.address.trim()},
+          ${data.phone.trim()}, ${data.bank.trim()}, ${data.iik.trim()},
+          ${data.bik.trim()}, ${data.vatEnabled}, ${data.vatRate}
+        )
+        on conflict (id) do update set
+          name = excluded.name,
+          bin = excluded.bin,
+          address = excluded.address,
+          phone = excluded.phone,
+          bank = excluded.bank,
+          iik = excluded.iik,
+          bik = excluded.bik,
+          vat_enabled = excluded.vat_enabled,
+          vat_rate = excluded.vat_rate
+        returning name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate
+      `;
+      return mapCompany(rows[0]);
     }, context.userId);
   });

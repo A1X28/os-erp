@@ -12,6 +12,7 @@ import {
   Users,
   Banknote,
   CalendarRange,
+  Landmark,
 } from "lucide-react";
 import { APP_NAME, COMPANY, DOC_TYPE_LABEL } from "@/lib/erp/labels";
 import type { DocType } from "@/lib/erp/types";
@@ -54,6 +55,7 @@ const GROUPS = [
   {
     label: "Компания",
     items: [
+      { to: "/company", label: "Профиль", icon: Landmark },
       { to: "/staff", label: "Сотрудники", icon: Users },
       { to: "/periods", label: "Периоды", icon: CalendarRange },
     ],

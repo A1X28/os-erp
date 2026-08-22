@@ -241,3 +241,27 @@ export type PeriodBoard = {
   graceDays: number;
   months: PeriodMonth[];
 };
+
+export type CompanyProfile = {
+  name: string;
+  bin: string;
+  address: string;
+  phone: string;
+  bank: string;
+  iik: string;
+  bik: string;
+  vatEnabled: boolean;
+  vatRate: number;
+};
+
+export const DEFAULT_COMPANY: CompanyProfile = {
+  name: "Севертрейд",
+  bin: "",
+  address: "",
+  phone: "",
+  bank: "",
+  iik: "",
+  bik: "",
+  vatEnabled: true,
+  vatRate: 12,
+};

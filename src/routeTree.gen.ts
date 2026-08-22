@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CatalogRouteImport } from './routes/catalog'
+import { Route as CompanyRouteImport } from './routes/company'
 import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MoneyRouteImport } from './routes/money'
@@ -36,6 +37,11 @@ const IndexRoute = IndexRouteImport.update({
 const CatalogRoute = CatalogRouteImport.update({
   id: '/catalog',
   path: '/catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompanyRoute = CompanyRouteImport.update({
+  id: '/company',
+  path: '/company',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocumentsRoute = DocumentsRouteImport.update({
@@ -122,6 +128,7 @@ const ApiCronPeriodsRoute = ApiCronPeriodsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/catalog': typeof CatalogRouteWithChildren
+  '/company': typeof CompanyRoute
   '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
   '/money': typeof MoneyRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/company': typeof CompanyRoute
   '/login': typeof LoginRoute
   '/money': typeof MoneyRoute
   '/partners': typeof PartnersRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/catalog': typeof CatalogRouteWithChildren
+  '/company': typeof CompanyRoute
   '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
   '/money': typeof MoneyRoute
@@ -183,6 +192,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/catalog'
+    | '/company'
     | '/documents'
     | '/login'
     | '/money'
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/company'
     | '/login'
     | '/money'
     | '/partners'
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/catalog'
+    | '/company'
     | '/documents'
     | '/login'
     | '/money'
@@ -242,6 +254,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CatalogRoute: typeof CatalogRouteWithChildren
+  CompanyRoute: typeof CompanyRoute
   DocumentsRoute: typeof DocumentsRouteWithChildren
   LoginRoute: typeof LoginRoute
   MoneyRoute: typeof MoneyRoute
@@ -269,6 +282,13 @@ declare module '@tanstack/react-router' {
       path: '/catalog'
       fullPath: '/catalog'
       preLoaderRoute: typeof CatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/company': {
+      id: '/company'
+      path: '/company'
+      fullPath: '/company'
+      preLoaderRoute: typeof CompanyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/documents': {
@@ -418,6 +438,7 @@ const DocumentsRouteWithChildren = DocumentsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CatalogRoute: CatalogRouteWithChildren,
+  CompanyRoute: CompanyRoute,
   DocumentsRoute: DocumentsRouteWithChildren,
   LoginRoute: LoginRoute,
   MoneyRoute: MoneyRoute,

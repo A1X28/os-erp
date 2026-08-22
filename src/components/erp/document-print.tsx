@@ -1,6 +1,7 @@
-import { COMPANY_PRINT, PRINT_TITLE, BUYER_DOC, SUPPLIER_DOC } from "@/lib/erp/labels";
+import { PRINT_TITLE, BUYER_DOC, SUPPLIER_DOC } from "@/lib/erp/labels";
 import { amountInWords, formatDate, money, qtyFmt, vatIncluded } from "@/lib/erp/format";
-import type { DocType, DocumentDetail } from "@/lib/erp/types";
+import type { CompanyProfile, DocType, DocumentDetail } from "@/lib/erp/types";
+import { DEFAULT_COMPANY } from "@/lib/erp/types";
 
 function partyLine(p: {
   name: string;
@@ -17,8 +18,7 @@ function partyLine(p: {
   return bits.join(" · ");
 }
 
-function oursLine() {
-  const ours = COMPANY_PRINT;
+function oursLine(ours: CompanyProfile) {
   return partyLine({
     name: ours.name,
     inn: ours.bin,
@@ -30,14 +30,20 @@ function oursLine() {
 const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff"];
 const BILL: DocType[] = ["invoice", "bill"];
 
-export function DocumentPrint({ doc }: { doc: DocumentDetail }) {
+export function DocumentPrint({
+  doc,
+  company = DEFAULT_COMPANY,
+}: {
+  doc: DocumentDetail;
+  company?: CompanyProfile;
+}) {
   const title = PRINT_TITLE[doc.type];
-  const vat = vatIncluded(doc.amount);
-  const ours = COMPANY_PRINT;
+  const ours = company;
+  const vat = ours.vatEnabled ? vatIncluded(doc.amount, ours.vatRate) : 0;
   const toBuyer = BUYER_DOC.includes(doc.type);
   const fromSupplier = SUPPLIER_DOC.includes(doc.type);
   const seller = toBuyer
-    ? oursLine()
+    ? oursLine(ours)
     : partyLine({
         name: doc.partnerName ?? "—",
         inn: doc.partnerInn,
@@ -45,14 +51,16 @@ export function DocumentPrint({ doc }: { doc: DocumentDetail }) {
         phone: doc.partnerPhone,
       });
   const buyer = fromSupplier
-    ? oursLine()
+    ? oursLine(ours)
     : partyLine({
         name: doc.partnerName ?? "—",
         inn: doc.partnerInn,
         city: doc.partnerCity,
         phone: doc.partnerPhone,
       });
-  const bankBits = [ours.bank, ours.iik, ours.bik].filter(Boolean);
+  const bankBits = [ours.bank, ours.iik && `ИИК ${ours.iik}`, ours.bik && `БИК ${ours.bik}`].filter(
+    Boolean,
+  ) as string[];
 
   return (
     <article className="mx-auto max-w-[190mm] bg-white px-1 py-2 text-black">
@@ -141,10 +149,17 @@ export function DocumentPrint({ doc }: { doc: DocumentDetail }) {
       <div className="mt-4 flex justify-end">
         <table className="text-sm">
           <tbody>
-            <tr>
-              <td className="pr-6 text-neutral-500">В т.ч. НДС 12%</td>
-              <td className="text-right tabular-nums">{money(vat)}</td>
-            </tr>
+            {ours.vatEnabled ? (
+              <tr>
+                <td className="pr-6 text-neutral-500">В т.ч. НДС {ours.vatRate}%</td>
+                <td className="text-right tabular-nums">{money(vat)}</td>
+              </tr>
+            ) : (
+              <tr>
+                <td className="pr-6 text-neutral-500">Без НДС</td>
+                <td />
+              </tr>
+            )}
             <tr>
               <td className="pr-6 pt-1 font-medium">Итого</td>
               <td className="pt-1 text-right text-base font-semibold tabular-nums">
