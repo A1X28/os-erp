@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Fraunces", "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-background: #efeae0;
+  --color-foreground: #1a1712;
+  --color-card: #fcfaf5;
+  --color-card-foreground: #1a1712;
+  --color-popover: #fcfaf5;
+  --color-popover-foreground: #1a1712;
+  --color-primary: #1c4538;
+  --color-primary-foreground: #f4efe4;
+  --color-secondary: #e4ddd0;
+  --color-secondary-foreground: #1a1712;
+  --color-muted: #e7e0d3;
+  --color-muted-foreground: #6f685c;
+  --color-accent: #e4ddd0;
+  --color-accent-foreground: #1a1712;
+  --color-destructive: #9b3a2f;
+  --color-destructive-foreground: #faf6ef;
+  --color-border: #d8d0c2;
+  --color-input: #d8d0c2;
+  --color-ring: #1c4538;
+  --color-sidebar: #14342c;
+  --color-sidebar-foreground: #efe8d8;
+  --color-sidebar-muted: #9aafa6;
+  --color-sidebar-accent: #1c4a3e;
+  --color-success: #2d6a4f;
+  --color-warning: #8a5a28;
+  --color-chart: #1c4538;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius: 12px;
+
+  --shadow-border:
+    0 0 0 1px rgb(26 23 18 / 0.06),
+    0 1px 2px -1px rgb(26 23 18 / 0.06),
+    0 2px 8px 0 rgb(26 23 18 / 0.04);
+
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01" 1;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

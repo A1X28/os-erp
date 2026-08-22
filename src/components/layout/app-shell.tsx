@@ -1,0 +1,249 @@
+import { useState, type ReactNode } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import {
+  LayoutDashboard,
+  FileText,
+  Warehouse,
+  Package,
+  Building2,
+  ChartNoAxesCombined,
+  Plus,
+  Menu,
+} from "lucide-react";
+import { APP_NAME, COMPANY, DOC_TYPE_LABEL } from "@/lib/erp/labels";
+import type { DocType } from "@/lib/erp/types";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+
+const GROUPS = [
+  {
+    label: "Операции",
+    items: [
+      { to: "/", label: "Дашборд", icon: LayoutDashboard },
+      { to: "/documents", label: "Документы", icon: FileText },
+      { to: "/stock", label: "Остатки", icon: Warehouse },
+    ],
+  },
+  {
+    label: "Справочники",
+    items: [
+      { to: "/catalog", label: "Номенклатура", icon: Package },
+      { to: "/partners", label: "Контрагенты", icon: Building2 },
+    ],
+  },
+  {
+    label: "Аналитика",
+    items: [{ to: "/reports", label: "Отчёты", icon: ChartNoAxesCombined }],
+  },
+] as const;
+
+const CREATE: { type: DocType; hint: string }[] = [
+  { type: "sale", hint: "Списать товар покупателю" },
+  { type: "purchase", hint: "Принять товар на склад" },
+  { type: "order", hint: "Заявка без движения склада" },
+  { type: "transfer", hint: "Между складами" },
+  { type: "writeoff", hint: "Бой, порча, недостача" },
+];
+
+const MOBILE_TABS = [
+  { to: "/", label: "Обзор", icon: LayoutDashboard },
+  { to: "/documents", label: "Документы", icon: FileText },
+  { to: "/stock", label: "Склад", icon: Warehouse },
+  { to: "/catalog", label: "Товары", icon: Package },
+] as const;
+
+function isActive(pathname: string, to: string) {
+  if (to === "/") return pathname === "/";
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+function AxisMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
+      <rect width="32" height="32" rx="8" fill="currentColor" className="text-primary-foreground/15" />
+      <path
+        d="M7 16h18M16 7v18"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="square"
+      />
+      <circle cx="16" cy="16" r="2.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+function NavLinks({
+  pathname,
+  onNavigate,
+  variant,
+}: {
+  pathname: string;
+  onNavigate?: () => void;
+  variant: "sidebar" | "sheet";
+}) {
+  const muted = variant === "sidebar" ? "text-sidebar-muted" : "text-muted-foreground";
+  const idle =
+    variant === "sidebar"
+      ? "text-sidebar-foreground/80 hover:bg-sidebar-accent"
+      : "text-foreground hover:bg-muted";
+  const active =
+    variant === "sidebar"
+      ? "bg-sidebar-accent text-sidebar-foreground"
+      : "bg-muted text-foreground";
+
+  return (
+    <nav className="flex flex-col gap-5">
+      {GROUPS.map((group) => (
+        <div key={group.label}>
+          <p className={cn("mb-1.5 px-3 text-xs font-medium uppercase tracking-wider", muted)}>
+            {group.label}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const on = isActive(pathname, item.to);
+              return (
+                <li key={item.to}>
+                  <Link
+                    to={item.to}
+                    onClick={onNavigate}
+                    className={cn(
+                      "flex h-10 items-center gap-2.5 rounded-md px-3 text-sm font-medium transition-colors duration-150",
+                      on ? active : idle,
+                    )}
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function CreateMenu({ compact }: { compact?: boolean }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size={compact ? "sm" : "default"} className={compact ? "h-10 px-3" : ""}>
+          <Plus className="size-4" />
+          <span className="hidden sm:inline">Создать</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>Новый документ</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {CREATE.map((item) => (
+          <DropdownMenuItem key={item.type} asChild>
+            <Link to="/documents/new" search={{ type: item.type }}>
+              <span className="flex flex-col">
+                <span>{DOC_TYPE_LABEL[item.type]}</span>
+                <span className="text-xs text-muted-foreground">{item.hint}</span>
+              </span>
+            </Link>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="flex min-h-dvh bg-background">
+      <aside className="hidden w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground lg:flex">
+        <div className="flex items-center gap-2.5 px-4 py-5">
+          <AxisMark className="size-8 text-sidebar-foreground" />
+          <div className="min-w-0">
+            <p className="font-display text-lg leading-tight tracking-tight">{APP_NAME}</p>
+            <p className="truncate text-xs text-sidebar-muted">{COMPANY}</p>
+          </div>
+        </div>
+        <div className="flex-1 px-2 py-1">
+          <NavLinks pathname={pathname} variant="sidebar" />
+        </div>
+        <p className="px-4 py-4 text-xs text-sidebar-muted">
+          Учёт без лишнего шума
+        </p>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/90 px-3 py-2 backdrop-blur-sm lg:hidden">
+          <button
+            type="button"
+            className="inline-flex size-10 items-center justify-center rounded-md"
+            onClick={() => setOpen(true)}
+            aria-label="Меню"
+          >
+            <Menu className="size-5" />
+          </button>
+          <Link to="/" className="font-display text-base tracking-tight">
+            {APP_NAME}
+          </Link>
+          <CreateMenu compact />
+        </header>
+
+        <div className="hidden items-center justify-end gap-3 px-6 pt-5 lg:flex">
+          <CreateMenu />
+        </div>
+
+        <main className="flex-1 px-3 pb-24 pt-4 sm:px-6 lg:pb-10 lg:pt-2">
+          {children}
+        </main>
+      </div>
+
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm lg:hidden">
+        <ul className="grid grid-cols-4">
+          {MOBILE_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const on = isActive(pathname, tab.to);
+            return (
+              <li key={tab.to}>
+                <Link
+                  to={tab.to}
+                  className={cn(
+                    "flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium",
+                    on ? "text-primary" : "text-muted-foreground",
+                  )}
+                >
+                  <Icon className="size-5" />
+                  {tab.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="left" className="w-72 bg-sidebar text-sidebar-foreground">
+          <SheetHeader>
+            <SheetTitle className="text-sidebar-foreground">{APP_NAME}</SheetTitle>
+            <p className="text-xs text-sidebar-muted">{COMPANY}</p>
+          </SheetHeader>
+          <NavLinks
+            pathname={pathname}
+            variant="sidebar"
+            onNavigate={() => setOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

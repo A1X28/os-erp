@@ -1,0 +1,22 @@
+node_modules/
+.vercel/
+.tanstack/
+dist/
+.output/
+.nitro/
+.wrangler/
+screenshots/
+artifacts/
+*.log
+.env
+.env.*
+!.env.example
+.node_modules.lock
+.DS_Store
+
+# Grok sandbox internals — not part of the product
+AGENTS.md
+AGENTS.project.md
+.grok/skills/
+.grok/references/
+.grok/status
