@@ -97,3 +97,13 @@ export async function lockDocument(
 export async function lockNumber(sql: Sql, key: string) {
   await sql.query("select pg_advisory_xact_lock(hashtext($1))", [key]);
 }
+
+export async function assertOwner(sql: Sql, userId: string) {
+  const rows = await sql.query<{ role: string | null }>(
+    `select role from "user" where id = $1`,
+    [userId],
+  );
+  if ((rows[0]?.role ?? "staff") !== "owner") {
+    throw new Error("Это может только владелец");
+  }
+}

@@ -60,7 +60,8 @@ function StaffPage() {
         <div>
           <h1 className="font-display text-3xl tracking-tight">Сотрудники</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Вход в Ось. Регистрация с улицы закрыта — учётку выдаёт тот, кто уже внутри.
+            Вход в Ось. Регистрация с улицы закрыта. Сотрудник ведёт учёт,
+            владелец закрывает периоды и меняет профиль.
           </p>
         </div>
         <Button onClick={() => setOpen(true)}>Новый сотрудник</Button>
@@ -72,6 +73,7 @@ function StaffPage() {
             <tr>
               <th className="px-4 py-3 font-medium">Имя</th>
               <th className="px-4 py-3 font-medium">Email</th>
+              <th className="px-4 py-3 font-medium">Роль</th>
               <th className="px-4 py-3 font-medium">С</th>
             </tr>
           </thead>
@@ -80,12 +82,15 @@ function StaffPage() {
               <tr key={row.id} className="border-b border-border last:border-0">
                 <td className="px-4 py-3 font-medium">{row.name || "—"}</td>
                 <td className="px-4 py-3 font-mono text-xs">{row.email}</td>
+                <td className="px-4 py-3 text-muted-foreground">
+                  {row.role === "owner" ? "Владелец" : "Сотрудник"}
+                </td>
                 <td className="px-4 py-3 text-muted-foreground">{row.createdAt}</td>
               </tr>
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                   Пока никого. Создайте первую учётку.
                 </td>
               </tr>

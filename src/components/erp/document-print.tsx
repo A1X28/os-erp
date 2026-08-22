@@ -27,7 +27,7 @@ function oursLine(ours: CompanyProfile) {
   });
 }
 
-const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff"];
+const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff", "sale_return", "purchase_return"];
 const BILL: DocType[] = ["invoice", "bill"];
 
 export function DocumentPrint({

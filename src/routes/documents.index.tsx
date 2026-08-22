@@ -22,9 +22,11 @@ const TYPES: Array<"all" | DocType> = [
   "po",
   "bill",
   "purchase",
+  "purchase_return",
   "order",
   "invoice",
   "sale",
+  "sale_return",
   "transfer",
   "writeoff",
 ];

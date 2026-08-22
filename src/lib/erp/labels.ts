@@ -23,6 +23,8 @@ export const DOC_TYPE_LABEL: Record<DocType, string> = {
   sale: "Отгрузка",
   transfer: "Перемещение",
   writeoff: "Списание",
+  sale_return: "Возврат от покупателя",
+  purchase_return: "Возврат поставщику",
 };
 
 export const PRINT_TITLE: Record<DocType, string> = {
@@ -34,6 +36,8 @@ export const PRINT_TITLE: Record<DocType, string> = {
   sale: "Накладная",
   transfer: "Накладная на перемещение",
   writeoff: "Акт списания",
+  sale_return: "Возвратная накладная",
+  purchase_return: "Возврат поставщику",
 };
 
 export const DOC_TYPE_SHORT: Record<DocType, string> = {
@@ -45,6 +49,8 @@ export const DOC_TYPE_SHORT: Record<DocType, string> = {
   sale: "ОТГ",
   transfer: "ПРМЩ",
   writeoff: "СПС",
+  sale_return: "ВОЗ",
+  purchase_return: "ВПС",
 };
 
 export const STATUS_LABEL: Record<DocStatus, string> = {
@@ -106,6 +112,8 @@ export const FOLLOW_LABEL: Partial<Record<DocType, string>> = {
   bill: "Принять товар",
   order: "Выставить счёт",
   invoice: "Отгрузить",
+  sale: "Вернуть от покупателя",
+  purchase: "Вернуть поставщику",
 };
 
 export const FOLLOW_TO: Partial<Record<DocType, DocType>> = {
@@ -113,7 +121,9 @@ export const FOLLOW_TO: Partial<Record<DocType, DocType>> = {
   bill: "purchase",
   order: "invoice",
   invoice: "sale",
+  sale: "sale_return",
+  purchase: "purchase_return",
 };
 
-export const SUPPLIER_DOC: DocType[] = ["po", "bill", "purchase"];
-export const BUYER_DOC: DocType[] = ["order", "invoice", "sale"];
+export const SUPPLIER_DOC: DocType[] = ["po", "bill", "purchase", "purchase_return"];
+export const BUYER_DOC: DocType[] = ["order", "invoice", "sale", "sale_return"];

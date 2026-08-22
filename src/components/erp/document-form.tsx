@@ -47,7 +47,14 @@ type DraftLine = {
 };
 
 function defaultPrice(type: DocType, product: Product) {
-  if (type === "sale" || type === "order" || type === "invoice") return product.salePrice;
+  if (
+    type === "sale" ||
+    type === "order" ||
+    type === "invoice" ||
+    type === "sale_return"
+  ) {
+    return product.salePrice;
+  }
   return product.purchasePrice;
 }
 
@@ -320,11 +327,22 @@ export function DocumentForm({
     type === "order" ||
     type === "po" ||
     type === "bill" ||
-    type === "invoice";
-  const moneyTypes = ["sale", "order", "purchase", "po", "bill", "invoice"];
+    type === "invoice" ||
+    type === "sale_return" ||
+    type === "purchase_return";
+  const moneyTypes = [
+    "sale",
+    "order",
+    "purchase",
+    "po",
+    "bill",
+    "invoice",
+    "sale_return",
+    "purchase_return",
+  ];
   const canPay = Boolean(initial) && moneyTypes.includes(type) && (initial?.dueAmount ?? 0) > 0;
-  const canFollow = Boolean(initial) && Boolean(FOLLOW_TO[type]) && !initial?.shipmentId;
-  const canShip = Boolean(initial) && type === "order" && !initial?.shipmentId;
+  const canFollow = Boolean(initial) && Boolean(FOLLOW_TO[type]) && Boolean(initial?.followOpen);
+  const canShip = Boolean(initial) && type === "order";
   const canTransit =
     Boolean(initial) &&
     (type === "po" || type === "bill") &&
@@ -753,7 +771,13 @@ export function DocumentForm({
             ) : null}
             {canPay ? (
               <Button variant="outline" onClick={() => setPayOpen(true)}>
-                {SUPPLIER_DOC.includes(type) ? "Оплатить поставщику" : "Принять оплату"}
+                {type === "sale_return"
+                  ? "Вернуть деньги"
+                  : type === "purchase_return"
+                    ? "Принять возврат денег"
+                    : SUPPLIER_DOC.includes(type)
+                      ? "Оплатить поставщику"
+                      : "Принять оплату"}
               </Button>
             ) : null}
             {canTransit ? (
@@ -849,7 +873,12 @@ export function DocumentForm({
       <PaymentDialog
         open={payOpen}
         onOpenChange={setPayOpen}
-        defaultKind={SUPPLIER_DOC.includes(type) ? "out" : "in"}
+        defaultKind={
+          type === "sale_return" ||
+          (SUPPLIER_DOC.includes(type) && type !== "purchase_return")
+            ? "out"
+            : "in"
+        }
         partnerId={initial?.counterpartyId}
         documentId={initial?.id}
         suggestedAmount={initial?.dueAmount}

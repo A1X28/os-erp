@@ -5,13 +5,13 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
 import { num, todayIso } from "./format";
-import { lockDocument, lockNumber, lockStockKeys, withTx } from "./guard";
+import { assertOwner, lockDocument, lockNumber, lockStockKeys, withTx } from "./guard";
 import {
   availableQty,
-  findSaleInChain,
   notEnough,
   onHand,
-  shippedInChain,
+  postedInChain,
+  remainingForFollow,
 } from "./stock";
 import type { Sql } from "@/lib/db";
 import { DOC_TYPE_SHORT, FOLLOW_TO } from "./labels";
@@ -23,6 +23,7 @@ import type {
   DocumentLine,
   DocumentSummary,
   Employee,
+  Me,
   Partner,
   PartnerKind,
   PayKind,
@@ -223,19 +224,22 @@ export const listProducts = createServerFn({ method: "GET" })
         group by l.product_id
       ) r on r.product_id = p.id
       left join (
-        select l.product_id, sum(l.qty) as incoming
+        select l.product_id, sum(greatest(l.qty - coalesce(recv.qty, 0), 0)) as incoming
         from documents d
         join document_lines l on l.document_id = d.id
+        left join lateral (
+          select coalesce(sum(lp.qty), 0) as qty
+          from documents rec
+          join document_lines lp
+            on lp.document_id = rec.id and lp.product_id = l.product_id
+          where rec.type = 'purchase' and rec.status = 'posted'
+            and (rec.source_id = d.id or rec.source_id in (
+              select b.id from documents b where b.source_id = d.id
+            ))
+        ) recv on true
         where d.type in ('po', 'bill')
           and (d.status = 'posted' or d.in_transit)
           and (${warehouseId}::int is null or d.warehouse_id = ${warehouseId})
-          and not exists (
-            select 1 from documents rec
-            where rec.type = 'purchase' and rec.status = 'posted'
-              and (rec.source_id = d.id or rec.source_id in (
-                select b.id from documents b where b.source_id = d.id
-              ))
-          )
         group by l.product_id
       ) i on i.product_id = p.id
       where (${q}::text is null
@@ -298,20 +302,22 @@ export const getProduct = createServerFn({ method: "GET" })
             and (d.type = 'order' or (d.type = 'invoice' and d.source_id is null))
         ), 0) as reserved,
         coalesce((
-          select sum(l.qty)
+          select sum(greatest(l.qty - coalesce((
+            select sum(lp.qty)
+            from documents rec
+            join document_lines lp
+              on lp.document_id = rec.id and lp.product_id = l.product_id
+            where rec.type = 'purchase' and rec.status = 'posted'
+              and (rec.source_id = d.id or rec.source_id in (
+                select b.id from documents b where b.source_id = d.id
+              ))
+          ), 0), 0))
           from documents d
           join document_lines l on l.document_id = d.id
           where d.type in ('po', 'bill')
             and (d.status = 'posted' or d.in_transit)
             and d.warehouse_id = w.id
             and l.product_id = ${data.id}
-            and not exists (
-              select 1 from documents rec
-              where rec.type = 'purchase' and rec.status = 'posted'
-                and (rec.source_id = d.id or rec.source_id in (
-                  select b.id from documents b where b.source_id = d.id
-                ))
-            )
         ), 0) as incoming
       from warehouses w
       left join stock_balance b
@@ -523,18 +529,21 @@ export const listStock = createServerFn({ method: "GET" })
         group by l.product_id, d.warehouse_id
       ) r on r.product_id = p.id and r.warehouse_id = w.id
       left join (
-        select l.product_id, d.warehouse_id, sum(l.qty) as incoming
+        select l.product_id, d.warehouse_id, sum(greatest(l.qty - coalesce(recv.qty, 0), 0)) as incoming
         from documents d
         join document_lines l on l.document_id = d.id
+        left join lateral (
+          select coalesce(sum(lp.qty), 0) as qty
+          from documents rec
+          join document_lines lp
+            on lp.document_id = rec.id and lp.product_id = l.product_id
+          where rec.type = 'purchase' and rec.status = 'posted'
+            and (rec.source_id = d.id or rec.source_id in (
+              select x.id from documents x where x.source_id = d.id
+            ))
+        ) recv on true
         where d.type in ('po', 'bill')
           and (d.status = 'posted' or d.in_transit)
-          and not exists (
-            select 1 from documents rec
-            where rec.type = 'purchase' and rec.status = 'posted'
-              and (rec.source_id = d.id or rec.source_id in (
-                select x.id from documents x where x.source_id = d.id
-              ))
-          )
         group by l.product_id, d.warehouse_id
       ) i on i.product_id = p.id and i.warehouse_id = w.id
       where (${warehouseId}::int is null or w.id = ${warehouseId})
@@ -686,9 +695,21 @@ export const getDocument = createServerFn({ method: "GET" })
       warehouseName: String(r.warehouse_name),
       qty: num(r.qty),
     }));
+    const amount = lines.reduce((s, l) => s + l.amount, 0);
+    const dtype = String(d.type) as DocType;
+    const next = FOLLOW_TO[dtype];
+    let followOpen = false;
+    if (next === "bill" || next === "invoice") {
+      const child = await sql<{ id: number }>`
+        select id from documents where source_id = ${data.id} and type = ${next} limit 1
+      `;
+      followOpen = !child[0];
+    } else if (next) {
+      followOpen = (await remainingForFollow(sql, data.id, next)) > 0;
+    }
     return {
       id: num(d.id),
-      type: String(d.type) as DocType,
+      type: dtype,
       number: String(d.number),
       docDate: String(d.doc_date).slice(0, 10),
       status: String(d.status) as DocStatus,
@@ -708,15 +729,16 @@ export const getDocument = createServerFn({ method: "GET" })
       sourceId,
       sourceNumber: d.source_number == null ? null : String(d.source_number),
       paidAmount,
-      dueAmount: Math.max(0, lines.reduce((s, l) => s + l.amount, 0) - paidAmount),
+      dueAmount: Math.max(0, amount - paidAmount),
       payments,
       shipmentId: d.shipment_id == null ? null : num(d.shipment_id),
       shipmentNumber: d.shipment_number == null ? null : String(d.shipment_number),
       childType: d.child_type == null ? null : (String(d.child_type) as DocType),
       inTransit: Boolean(d.in_transit),
+      followOpen,
       lines,
       moves,
-      amount: lines.reduce((s, l) => s + l.amount, 0),
+      amount,
     };
   });
 
@@ -847,9 +869,9 @@ export const postDocument = createServerFn({ method: "POST" })
     const toId = d.to_warehouse_id == null ? null : num(d.to_warehouse_id);
     const sourceId = d.source_id == null ? null : num(d.source_id);
 
-    if (type === "purchase" && !warehouseId) throw new Error("Не указан склад");
+    if ((type === "purchase" || type === "sale_return") && !warehouseId) throw new Error("Не указан склад");
 
-    if (type === "sale" || type === "writeoff") {
+    if (type === "sale" || type === "writeoff" || type === "purchase_return") {
       if (!warehouseId) throw new Error("Не указан склад");
       await lockStockKeys(
         sql,
@@ -874,7 +896,11 @@ export const postDocument = createServerFn({ method: "POST" })
         }
       }
       if (missing.length) {
-        throw new Error(`Недостаточно остатка: ${missing.join("; ")}`);
+        throw new Error(
+          type === "purchase_return"
+            ? `Недостаточно остатка для возврата: ${missing.join("; ")}`
+            : `Недостаточно остатка: ${missing.join("; ")}`,
+        );
       }
     }
     if (type === "transfer") {
@@ -906,12 +932,12 @@ export const postDocument = createServerFn({ method: "POST" })
 
     for (const line of lines) {
       const qty = num(line.qty);
-      if (type === "purchase") {
+      if (type === "purchase" || type === "sale_return") {
         await sql`
           insert into stock_moves (document_id, product_id, warehouse_id, qty)
           values (${data.id}, ${line.product_id}, ${warehouseId}, ${qty})
         `;
-      } else if (type === "sale" || type === "writeoff") {
+      } else if (type === "sale" || type === "writeoff" || type === "purchase_return") {
         await sql`
           insert into stock_moves (document_id, product_id, warehouse_id, qty)
           values (${data.id}, ${line.product_id}, ${warehouseId}, ${-qty})
@@ -930,10 +956,13 @@ export const postDocument = createServerFn({ method: "POST" })
 
     if (type === "purchase" && d.source_id != null) {
       const srcId = num(d.source_id);
-      await sql`
-        update documents set in_transit = false
-        where id = ${srcId} or source_id = ${srcId} or id = ${data.id}
-      `;
+      const left = await remainingForFollow(sql, srcId, "purchase");
+      if (left <= 0) {
+        await sql`
+          update documents set in_transit = false
+          where id = ${srcId} or source_id = ${srcId} or id = ${data.id}
+        `;
+      }
     }
     return { ok: true };
     }, context.userId);
@@ -1308,7 +1337,7 @@ export const listEmployees = createServerFn({ method: "GET" })
   .handler(async (): Promise<Employee[]> => {
     const sql = await withDb();
     const rows = await sql<Record<string, unknown>>`
-      select id, name, email, "createdAt"
+      select id, name, email, role, "createdAt"
       from "user"
       order by "createdAt" asc
     `;
@@ -1316,8 +1345,25 @@ export const listEmployees = createServerFn({ method: "GET" })
       id: String(r.id),
       name: String(r.name ?? ""),
       email: String(r.email ?? ""),
+      role: r.role === "owner" ? "owner" : "staff",
       createdAt: String(r.createdAt ?? "").slice(0, 10),
     }));
+  });
+
+export const getMe = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<Me> => {
+    const sql = await withDb();
+    const rows = await sql<Record<string, unknown>>`
+      select id, name, email, role from "user" where id = ${context.userId}
+    `;
+    const r = rows[0];
+    return {
+      id: context.userId,
+      name: String(r?.name ?? ""),
+      email: String(r?.email ?? ""),
+      role: r?.role === "owner" ? "owner" : "staff",
+    };
   });
 
 export const createEmployee = createServerFn({ method: "POST" })
@@ -1329,8 +1375,9 @@ export const createEmployee = createServerFn({ method: "POST" })
       password: z.string().min(8),
     }),
   )
-  .handler(async ({ data }): Promise<Employee> => {
+  .handler(async ({ data, context }): Promise<Employee> => {
     const sql = await withDb();
+    await assertOwner(sql, context.userId);
     const email = data.email.toLowerCase();
     const existing = await sql<{ n: number }>`
       select count(*)::int as n from "user" where email = ${email}
@@ -1341,8 +1388,8 @@ export const createEmployee = createServerFn({ method: "POST" })
     const id = randomBytes(16).toString("hex");
     const passwordHash = await hashPassword(data.password);
     await sql`
-      insert into "user" (id, name, email, "emailVerified")
-      values (${id}, ${data.name}, ${email}, true)
+      insert into "user" (id, name, email, "emailVerified", role)
+      values (${id}, ${data.name}, ${email}, true, 'staff')
     `;
     await sql`
       insert into "account" (
@@ -1358,7 +1405,7 @@ export const createEmployee = createServerFn({ method: "POST" })
         now()
       )
     `;
-    return { id, name: data.name, email, createdAt: new Date().toISOString().slice(0, 10) };
+    return { id, name: data.name, email, role: "staff", createdAt: new Date().toISOString().slice(0, 10) };
   });
 
 async function nextPaymentNumber(sql: Sql, kind: PayKind): Promise<string> {
@@ -1426,11 +1473,11 @@ export const savePayment = createServerFn({ method: "POST" })
         throw new Error("Контрагент не совпадает с документом");
       }
       const dtype = String(docs.type);
-      if (data.kind === "in" && !["order", "invoice", "sale"].includes(dtype)) {
-        throw new Error("Входящая оплата только к заказу, счёту или отгрузке покупателя");
+      if (data.kind === "in" && !["order", "invoice", "sale", "purchase_return"].includes(dtype)) {
+        throw new Error("Входящие деньги только к продаже или возврату поставщику");
       }
-      if (data.kind === "out" && !["po", "bill", "purchase"].includes(dtype)) {
-        throw new Error("Исходящая оплата только к заказу, счёту или приёмке поставщика");
+      if (data.kind === "out" && !["po", "bill", "purchase", "sale_return"].includes(dtype)) {
+        throw new Error("Исходящие деньги только к закупке или возврату покупателю");
       }
     }
     const number = await nextPaymentNumber(sql, data.kind);
@@ -1480,14 +1527,20 @@ export const followOn = createServerFn({ method: "POST" })
     const fromType = String(src.type) as DocType;
     const toType = (data.toType ?? FOLLOW_TO[fromType]) as DocType | undefined;
     if (!toType) throw new Error("Из этого документа дальше идти некуда");
-    if (toType === "sale") {
-      const already = await findSaleInChain(sql, data.id);
-      if (already) return { id: already };
+    const oneShot = toType === "bill" || toType === "invoice";
+    if (oneShot) {
+      const existing = await sql<{ id: number }>`
+        select id from documents where source_id = ${data.id} and type = ${toType} limit 1
+      `;
+      if (existing[0]) return { id: existing[0].id };
+    } else {
+      const draft = await sql<{ id: number }>`
+        select id from documents
+        where source_id = ${data.id} and type = ${toType} and status = 'draft'
+        order by id desc limit 1
+      `;
+      if (draft[0]) return { id: draft[0].id };
     }
-    const existing = await sql<{ id: number }>`
-      select id from documents where source_id = ${data.id} and type = ${toType} limit 1
-    `;
-    if (existing[0]) return { id: existing[0].id };
     if (toType !== "transfer" && toType !== "writeoff" && !src.counterparty_id) {
       throw new Error("Укажите контрагента");
     }
@@ -1512,12 +1565,13 @@ export const followOn = createServerFn({ method: "POST" })
       returning id
     `;
     const id = inserted[0].id;
+    const consume = oneShot ? null : toType;
     let copied = 0;
     for (const line of lines) {
       let qty = num(line.qty);
-      if (toType === "sale") {
-        const shipped = await shippedInChain(sql, data.id, line.product_id);
-        qty = Math.max(0, Math.round((qty - shipped) * 1000) / 1000);
+      if (consume) {
+        const used = await postedInChain(sql, data.id, line.product_id, consume);
+        qty = Math.max(0, Math.round((qty - used) * 1000) / 1000);
         if (qty <= 0) continue;
       }
       const amount = Math.round(qty * num(line.price) * 100) / 100;
@@ -1529,7 +1583,13 @@ export const followOn = createServerFn({ method: "POST" })
     }
     if (copied === 0) {
       await sql`delete from documents where id = ${id}`;
-      throw new Error("По этому заказу уже всё отгружено");
+      throw new Error(
+        consume === "purchase"
+          ? "По этому заказу уже всё принято"
+          : consume === "sale"
+            ? "По этому заказу уже всё отгружено"
+            : "По этому документу уже всё возвращено",
+      );
     }
     return { id };
     }, context.userId);
@@ -1557,21 +1617,27 @@ export const listInTransit = createServerFn({ method: "GET" })
     const rows = await sql<Record<string, unknown>>`
       select d.id as document_id, d.number, coalesce(c.name, '') as partner_name,
              coalesce(w.name, '') as warehouse_name,
-             p.name as product_name, l.qty, l.amount, d.in_transit
+             p.name as product_name,
+             greatest(l.qty - coalesce(recv.qty, 0), 0) as qty,
+             l.amount, d.in_transit
       from documents d
       join document_lines l on l.document_id = d.id
       join products p on p.id = l.product_id
       left join counterparties c on c.id = d.counterparty_id
       left join warehouses w on w.id = d.warehouse_id
+      left join lateral (
+        select coalesce(sum(lp.qty), 0) as qty
+        from documents r
+        join document_lines lp
+          on lp.document_id = r.id and lp.product_id = l.product_id
+        where r.type = 'purchase' and r.status = 'posted'
+          and (r.source_id = d.id or r.source_id in (
+            select b.id from documents b where b.source_id = d.id
+          ))
+      ) recv on true
       where d.type in ('po', 'bill')
         and (d.status = 'posted' or d.in_transit)
-        and not exists (
-          select 1 from documents r
-          where r.type = 'purchase' and r.status = 'posted'
-            and (r.source_id = d.id or r.source_id in (
-              select b.id from documents b where b.source_id = d.id
-            ))
-        )
+        and greatest(l.qty - coalesce(recv.qty, 0), 0) > 0
       order by d.in_transit desc, d.doc_date, d.id, l.id
     `;
     return rows.map((r) => ({
@@ -1708,6 +1774,7 @@ export const savePeriodSettings = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }): Promise<PeriodBoard> => {
     await withTx(async (sql) => {
+      await assertOwner(sql, context.userId);
       await sql`
         insert into period_settings (id, auto_close, grace_days)
         values (1, ${data.autoClose}, ${data.graceDays})
@@ -1724,6 +1791,7 @@ export const closePeriod = createServerFn({ method: "POST" })
   .inputValidator(z.object({ year: z.number(), month: z.number() }))
   .handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
+      await assertOwner(sql, context.userId);
       const year = data.year;
       const month = data.month;
       if (month < 1 || month > 12) throw new Error("Некорректный месяц");
@@ -1766,6 +1834,7 @@ export const reopenPeriod = createServerFn({ method: "POST" })
   .inputValidator(z.object({ year: z.number(), month: z.number() }))
   .handler(async ({ data, context }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
+      await assertOwner(sql, context.userId);
       const latest = await sql<{ year: number; month: number }>`
         select year, month from closed_periods
         order by year desc, month desc limit 1
@@ -1837,6 +1906,7 @@ export const saveCompany = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }): Promise<CompanyProfile> => {
     return withTx(async (sql) => {
+      await assertOwner(sql, context.userId);
       const rows = await sql<Record<string, unknown>>`
         insert into company_profile (
           id, name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,

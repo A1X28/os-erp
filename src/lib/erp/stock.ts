@@ -4,7 +4,14 @@ import { num } from "./format";
 const EPS = 1e-9;
 
 export function stockDocs(type: string): boolean {
-  return type === "purchase" || type === "sale" || type === "writeoff" || type === "transfer";
+  return (
+    type === "purchase" ||
+    type === "sale" ||
+    type === "writeoff" ||
+    type === "transfer" ||
+    type === "sale_return" ||
+    type === "purchase_return"
+  );
 }
 
 export async function chainIds(sql: Sql, start: number): Promise<number[]> {
@@ -142,20 +149,25 @@ export async function incomingQty(
   warehouseId: number,
 ): Promise<number> {
   const rows = await sql<{ qty: unknown }>`
-    select coalesce(sum(l.qty), 0) as qty
+    select coalesce(sum(greatest(l.qty - coalesce(recv.qty, 0), 0)), 0) as qty
     from documents d
     join document_lines l on l.document_id = d.id
+    left join lateral (
+      select coalesce(sum(lp.qty), 0) as qty
+      from documents p
+      join document_lines lp
+        on lp.document_id = p.id and lp.product_id = l.product_id
+      where p.type = 'purchase'
+        and p.status = 'posted'
+        and (
+          p.source_id = d.id
+          or p.source_id in (select b.id from documents b where b.source_id = d.id)
+        )
+    ) recv on true
     where d.type in ('po', 'bill')
       and (d.status = 'posted' or d.in_transit)
       and d.warehouse_id = ${warehouseId}
       and l.product_id = ${productId}
-      and not exists (
-        select 1 from documents r
-        where r.type = 'purchase' and r.status = 'posted'
-          and (r.source_id = d.id or r.source_id in (
-            select b.id from documents b where b.source_id = d.id
-          ))
-      )
   `;
   return num(rows[0]?.qty);
 }
@@ -183,10 +195,11 @@ export function notEnough(have: number, need: number): boolean {
   return have + EPS < need;
 }
 
-export async function shippedInChain(
+export async function postedInChain(
   sql: Sql,
   start: number,
   productId: number,
+  type: string,
 ): Promise<number> {
   const ids = await chainIds(sql, start);
   if (ids.length === 0) return 0;
@@ -194,11 +207,35 @@ export async function shippedInChain(
     `select coalesce(sum(l.qty), 0) as qty
      from documents s
      join document_lines l on l.document_id = s.id
-     where s.type = 'sale'
+     where s.type = $1
        and s.status = 'posted'
-       and l.product_id = $1
-       and s.id = any($2::int[])`,
-    [productId, ids],
+       and l.product_id = $2
+       and s.id = any($3::int[])`,
+    [type, productId, ids],
   );
   return num(rows[0]?.qty);
+}
+
+export async function shippedInChain(
+  sql: Sql,
+  start: number,
+  productId: number,
+): Promise<number> {
+  return postedInChain(sql, start, productId, "sale");
+}
+
+export async function remainingForFollow(
+  sql: Sql,
+  start: number,
+  consumeType: string,
+): Promise<number> {
+  const lines = await sql<{ product_id: number; qty: unknown }>`
+    select product_id, qty from document_lines where document_id = ${start}
+  `;
+  let open = 0;
+  for (const line of lines) {
+    const used = await postedInChain(sql, start, num(line.product_id), consumeType);
+    open += Math.max(0, num(line.qty) - used);
+  }
+  return Math.round(open * 1000) / 1000;
 }

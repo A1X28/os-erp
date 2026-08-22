@@ -30,6 +30,8 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { UserButton, RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { getMe } from "@/lib/erp/server";
+import { useQuery } from "@tanstack/react-query";
 
 const GROUPS = [
   {
@@ -69,6 +71,8 @@ const CREATE: { type: DocType; hint: string }[] = [
   { type: "order", hint: "Заявка покупателя" },
   { type: "invoice", hint: "Счёт покупателю" },
   { type: "sale", hint: "Отгрузить со склада" },
+  { type: "sale_return", hint: "Товар вернулся от клиента" },
+  { type: "purchase_return", hint: "Вернуть товар поставщику" },
   { type: "transfer", hint: "Между складами" },
   { type: "writeoff", hint: "Бой, порча, недостача" },
 ];
@@ -103,19 +107,27 @@ function AxisMark({ className }: { className?: string }) {
 function NavLinks({
   pathname,
   onNavigate,
+  owner,
 }: {
   pathname: string;
   onNavigate?: () => void;
+  owner: boolean;
 }) {
   return (
     <nav className="flex flex-col gap-5">
-      {GROUPS.map((group) => (
+      {GROUPS.map((group) => {
+        const items =
+          group.label === "Компания" && !owner
+            ? []
+            : group.items;
+        if (items.length === 0) return null;
+        return (
         <div key={group.label}>
           <p className="mb-1.5 px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {group.label}
           </p>
           <ul className="flex flex-col gap-0.5">
-            {group.items.map((item) => {
+            {items.map((item) => {
               const Icon = item.icon;
               const on = isActive(pathname, item.to);
               return (
@@ -138,7 +150,8 @@ function NavLinks({
             })}
           </ul>
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -171,6 +184,20 @@ function CreateMenu({ compact }: { compact?: boolean }) {
         <DropdownMenuSeparator />
         <DropdownMenuLabel>Продажа</DropdownMenuLabel>
         {CREATE.filter((i) => i.type === "order" || i.type === "invoice" || i.type === "sale").map(
+          (item) => (
+            <DropdownMenuItem key={item.type} asChild>
+              <Link to="/documents/new" search={{ type: item.type }}>
+                <span className="flex flex-col">
+                  <span>{DOC_TYPE_LABEL[item.type]}</span>
+                  <span className="text-xs text-muted-foreground">{item.hint}</span>
+                </span>
+              </Link>
+            </DropdownMenuItem>
+          ),
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Возвраты</DropdownMenuLabel>
+        {CREATE.filter((i) => i.type === "sale_return" || i.type === "purchase_return").map(
           (item) => (
             <DropdownMenuItem key={item.type} asChild>
               <Link to="/documents/new" search={{ type: item.type }}>
@@ -219,6 +246,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const { user, isPending } = useCurrentUserState();
+  const me = useQuery({
+    queryKey: ["me"],
+    queryFn: () => getMe(),
+    enabled: Boolean(user) && pathname !== "/login",
+  });
+  const owner = me.data?.role !== "staff";
 
   if (pathname === "/login" || pathname.includes("/print")) {
     return <>{children}</>;
@@ -247,7 +280,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="flex-1 px-2 py-1">
-          <NavLinks pathname={pathname} />
+          <NavLinks pathname={pathname} owner={owner} />
         </div>
         <div className="flex items-center justify-between px-3 py-3">
           <p className="text-xs text-muted-foreground">Учёт без лишнего шума</p>
@@ -311,7 +344,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <SheetTitle>{APP_NAME}</SheetTitle>
             <p className="text-xs text-muted-foreground">{COMPANY}</p>
           </SheetHeader>
-          <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
+          <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} owner={owner} />
           <div className="mt-6 flex items-center justify-between px-3">
             <UserButton />
             <ThemeToggle compact />

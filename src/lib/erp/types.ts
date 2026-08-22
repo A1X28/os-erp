@@ -7,6 +7,8 @@ export const DOC_TYPES = [
   "sale",
   "transfer",
   "writeoff",
+  "sale_return",
+  "purchase_return",
 ] as const;
 
 export type DocType = (typeof DOC_TYPES)[number];
@@ -60,7 +62,15 @@ export type Employee = {
   id: string;
   name: string;
   email: string;
+  role: "owner" | "staff";
   createdAt: string;
+};
+
+export type Me = {
+  id: string;
+  name: string;
+  email: string;
+  role: "owner" | "staff";
 };
 
 export type Payment = {
@@ -138,6 +148,7 @@ export type DocumentDetail = {
   shipmentNumber: string | null;
   childType: DocType | null;
   inTransit: boolean;
+  followOpen: boolean;
   lines: DocumentLine[];
   moves: StockMove[];
   amount: number;
