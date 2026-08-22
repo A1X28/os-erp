@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge } from "@/components/erp/status-badge";
+import { PaymentDialog } from "@/components/erp/payment-dialog";
 import {
   deleteDraft,
   getDocument,
@@ -24,6 +25,7 @@ import {
   listWarehouses,
   postDocument,
   saveDocument,
+  shipOrder,
   unpostDocument,
 } from "@/lib/erp/server";
 import { DOC_TYPE_LABEL } from "@/lib/erp/labels";
@@ -262,7 +264,23 @@ export function DocumentForm({
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const shipMut = useMutation({
+    mutationFn: () => shipOrder({ data: { id: initial!.id } }),
+    onSuccess: (res) => {
+      invalidateAll();
+      toast.success("Отгрузка создана — проведите её, чтобы списать склад");
+      void navigate({ to: "/documents/$id", params: { id: String(res.id) } });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const [payOpen, setPayOpen] = useState(false);
   const needsPartner = type === "sale" || type === "purchase" || type === "order";
+  const canPay =
+    Boolean(initial) &&
+    (type === "sale" || type === "order" || type === "purchase") &&
+    (initial?.dueAmount ?? 0) > 0;
+  const canShip = Boolean(initial) && type === "order" && !initial?.shipmentId;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -283,6 +301,29 @@ export function DocumentForm({
         </div>
         {initial ? <StatusBadge status={initial.status} /> : null}
       </div>
+
+      {initial?.sourceNumber ? (
+        <p className="-mt-3 mb-4 text-sm text-muted-foreground">
+          Из заказа {initial.sourceNumber}
+        </p>
+      ) : null}
+      {initial?.shipmentId && initial.shipmentNumber ? (
+        <p className="-mt-3 mb-4 text-sm">
+          Отгрузка{" "}
+          <button
+            type="button"
+            className="text-primary underline-offset-2 hover:underline"
+            onClick={() =>
+              void navigate({
+                to: "/documents/$id",
+                params: { id: String(initial.shipmentId) },
+              })
+            }
+          >
+            {initial.shipmentNumber}
+          </button>
+        </p>
+      ) : null}
 
       <div className="rounded-xl bg-card p-4 shadow-[var(--shadow-border)] sm:p-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -622,8 +663,24 @@ export function DocumentForm({
             <p className="mt-1 font-display text-2xl tabular-nums tracking-tight">
               {money(amount)}
             </p>
+            {initial && (type === "sale" || type === "order" || type === "purchase") ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Оплачено {money(initial.paidAmount)}
+                {initial.dueAmount > 0 ? ` · долг ${money(initial.dueAmount)}` : " · закрыто"}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            {canPay ? (
+              <Button variant="outline" onClick={() => setPayOpen(true)}>
+                {type === "purchase" ? "Оплатить поставщику" : "Принять оплату"}
+              </Button>
+            ) : null}
+            {canShip ? (
+              <Button variant="outline" onClick={() => shipMut.mutate()} disabled={shipMut.isPending}>
+                Отгрузить
+              </Button>
+            ) : null}
             {locked ? (
               <Button
                 variant="outline"
@@ -667,6 +724,34 @@ export function DocumentForm({
           </div>
         </div>
       </div>
+
+      {initial && (type === "sale" || type === "order" || type === "purchase") && initial.payments.length > 0 ? (
+        <div className="mt-4 rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
+          <h2 className="mb-3 font-display text-lg">Оплаты</h2>
+          <ul className="space-y-2 text-sm">
+            {initial.payments.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3">
+                <span>
+                  {p.number}
+                  <span className="block text-xs text-muted-foreground">
+                    {p.payDate} · {p.method}
+                  </span>
+                </span>
+                <span className="tabular-nums font-medium">{money(p.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <PaymentDialog
+        open={payOpen}
+        onOpenChange={setPayOpen}
+        defaultKind={type === "purchase" ? "out" : "in"}
+        partnerId={initial?.counterpartyId}
+        documentId={initial?.id}
+        suggestedAmount={initial?.dueAmount}
+      />
     </div>
   );
 }

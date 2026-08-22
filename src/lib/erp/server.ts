@@ -16,6 +16,9 @@ import type {
   Employee,
   Partner,
   PartnerKind,
+  PayKind,
+  PayMethod,
+  Payment,
   PeriodKey,
   Product,
   ReportData,
@@ -96,6 +99,23 @@ function mapPartner(r: Record<string, unknown>): Partner {
     kind: String(r.kind) as PartnerKind,
     city: String(r.city ?? ""),
     phone: String(r.phone ?? ""),
+  };
+}
+
+function mapPayment(r: Record<string, unknown>): Payment {
+  return {
+    id: num(r.id),
+    kind: String(r.kind) as PayKind,
+    number: String(r.number),
+    payDate: String(r.pay_date).slice(0, 10),
+    partnerId: num(r.partner_id),
+    partnerName: String(r.partner_name ?? ""),
+    documentId: r.document_id == null ? null : num(r.document_id),
+    documentNumber: r.document_number == null ? null : String(r.document_number),
+    documentType: r.document_type == null ? null : (String(r.document_type) as DocType),
+    amount: num(r.amount),
+    method: String(r.method) as PayMethod,
+    comment: String(r.comment ?? ""),
   };
 }
 
@@ -423,12 +443,16 @@ export const getDocument = createServerFn({ method: "GET" })
         w.name as warehouse_name,
         wf.name as from_warehouse_name,
         wt.name as to_warehouse_name,
-        c.name as partner_name
+        c.name as partner_name,
+        src.number as source_number,
+        (select s.id from documents s where s.source_id = d.id and s.type = 'sale' limit 1) as shipment_id,
+        (select s.number from documents s where s.source_id = d.id and s.type = 'sale' limit 1) as shipment_number
       from documents d
       left join warehouses w on w.id = d.warehouse_id
       left join warehouses wf on wf.id = d.from_warehouse_id
       left join warehouses wt on wt.id = d.to_warehouse_id
       left join counterparties c on c.id = d.counterparty_id
+      left join documents src on src.id = d.source_id
       where d.id = ${data.id}
     `,
       sql<Record<string, unknown>>`
@@ -451,6 +475,21 @@ export const getDocument = createServerFn({ method: "GET" })
     ]);
     if (!docs[0]) throw new Error("Документ не найден");
     const d = docs[0];
+    const sourceId = d.source_id == null ? null : num(d.source_id);
+    const payRows = await sql<Record<string, unknown>>`
+      select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
+             p.amount, p.method, p.comment, c.name as partner_name,
+             d.number as document_number, d.type as document_type
+      from payments p
+      join counterparties c on c.id = p.partner_id
+      left join documents d on d.id = p.document_id
+      where p.document_id = ${data.id}
+         or (${sourceId}::int is not null and p.document_id = ${sourceId})
+         or p.document_id in (select s.id from documents s where s.source_id = ${data.id})
+      order by p.pay_date, p.id
+    `;
+    const payments: Payment[] = payRows.map(mapPayment);
+    const paidAmount = payments.reduce((s, p) => s + p.amount, 0);
     const lines: DocumentLine[] = lineRows.map((r) => ({
       id: num(r.id),
       productId: num(r.product_id),
@@ -485,6 +524,13 @@ export const getDocument = createServerFn({ method: "GET" })
       partnerName: d.partner_name == null ? null : String(d.partner_name),
       comment: String(d.comment ?? ""),
       postedAt: d.posted_at == null ? null : String(d.posted_at),
+      sourceId,
+      sourceNumber: d.source_number == null ? null : String(d.source_number),
+      paidAmount,
+      dueAmount: Math.max(0, lines.reduce((s, l) => s + l.amount, 0) - paidAmount),
+      payments,
+      shipmentId: d.shipment_id == null ? null : num(d.shipment_id),
+      shipmentNumber: d.shipment_number == null ? null : String(d.shipment_number),
       lines,
       moves,
       amount: lines.reduce((s, l) => s + l.amount, 0),
@@ -859,6 +905,47 @@ export const getDashboard = createServerFn({ method: "GET" })
         `,
       ]);
 
+    const [incomingRows, outgoingRows, receivableRows, payableRows] = await Promise.all([
+      sql<{ n: unknown }>`
+        select coalesce(sum(amount), 0) as n
+        from payments
+        where kind = 'in' and pay_date >= ${from}
+      `,
+      sql<{ n: unknown }>`
+        select coalesce(sum(amount), 0) as n
+        from payments
+        where kind = 'out' and pay_date >= ${from}
+      `,
+      sql<{ n: unknown }>`
+        select coalesce(sum(greatest(doc_amt - paid, 0)), 0) as n
+        from (
+          select
+            coalesce((select sum(l.amount) from document_lines l where l.document_id = d.id), 0) as doc_amt,
+            coalesce((
+              select sum(p.amount) from payments p
+              where p.document_id = d.id
+                 or p.document_id = d.source_id
+                 or p.document_id in (select s.id from documents s where s.source_id = d.id)
+            ), 0) as paid
+          from documents d
+          where (d.type = 'sale' and d.status = 'posted')
+             or (d.type = 'order' and not exists (
+               select 1 from documents s where s.source_id = d.id and s.type = 'sale'
+             ))
+        ) t
+      `,
+      sql<{ n: unknown }>`
+        select coalesce(sum(greatest(doc_amt - paid, 0)), 0) as n
+        from (
+          select
+            coalesce((select sum(l.amount) from document_lines l where l.document_id = d.id), 0) as doc_amt,
+            coalesce((select sum(p.amount) from payments p where p.document_id = d.id), 0) as paid
+          from documents d
+          where d.type = 'purchase' and d.status = 'posted'
+        ) t
+      `,
+    ]);
+
     const revenue = num(revenueRows[0]?.revenue);
     const cogs = num(revenueRows[0]?.cogs);
     const docsPosted = num(revenueRows[0]?.docs);
@@ -900,6 +987,10 @@ export const getDashboard = createServerFn({ method: "GET" })
         qty: num(r.qty),
         amount: num(r.amount),
       })),
+      incoming: num(incomingRows[0]?.n),
+      outgoing: num(outgoingRows[0]?.n),
+      receivable: num(receivableRows[0]?.n),
+      payable: num(payableRows[0]?.n),
     };
   });
 
@@ -1032,4 +1123,141 @@ export const createEmployee = createServerFn({ method: "POST" })
       )
     `;
     return { id, name: data.name, email, createdAt: new Date().toISOString().slice(0, 10) };
+  });
+
+async function nextPaymentNumber(kind: PayKind): Promise<string> {
+  const sql = await withDb();
+  const prefix = kind === "in" ? "ОПЛ" : "ВЫП";
+  const rows = await sql<{ number: string }>`
+    select number from payments where kind = ${kind} order by id desc limit 1
+  `;
+  const last = rows[0]?.number ?? "";
+  const match = last.match(/(\d+)$/);
+  const n = match ? Number(match[1]) + 1 : 1;
+  return `${prefix}-${String(n).padStart(4, "0")}`;
+}
+
+export const listPayments = createServerFn({ method: "GET" })
+  .validator(
+    z.object({
+      kind: z.enum(["in", "out", "all"]).optional(),
+      q: z.string().optional(),
+    }),
+  )
+  .middleware([authMiddleware]).handler(async ({ data }): Promise<Payment[]> => {
+    const sql = await withDb();
+    const kind = data.kind && data.kind !== "all" ? data.kind : null;
+    const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
+    const rows = await sql<Record<string, unknown>>`
+      select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
+             p.amount, p.method, p.comment, c.name as partner_name,
+             d.number as document_number, d.type as document_type
+      from payments p
+      join counterparties c on c.id = p.partner_id
+      left join documents d on d.id = p.document_id
+      where (${kind}::text is null or p.kind = ${kind})
+        and (${q}::text is null
+          or lower(p.number) like ${q}
+          or lower(c.name) like ${q})
+      order by p.pay_date desc, p.id desc
+      limit 200
+    `;
+    return rows.map(mapPayment);
+  });
+
+export const savePayment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      kind: z.enum(["in", "out"]),
+      payDate: z.string().min(8),
+      partnerId: z.number(),
+      documentId: z.number().nullable().optional(),
+      amount: z.number().positive(),
+      method: z.enum(["cash", "bank", "kaspi"]),
+      comment: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<Payment> => {
+    const sql = await withDb();
+    if (data.documentId) {
+      const docs = await sql<{ id: number; counterparty_id: number | null; type: string }>`
+        select id, counterparty_id, type from documents where id = ${data.documentId}
+      `;
+      if (!docs[0]) throw new Error("Документ не найден");
+      if (docs[0].counterparty_id && num(docs[0].counterparty_id) !== data.partnerId) {
+        throw new Error("Контрагент не совпадает с документом");
+      }
+    }
+    const number = await nextPaymentNumber(data.kind);
+    const rows = await sql<Record<string, unknown>>`
+      insert into payments (kind, number, pay_date, partner_id, document_id, amount, method, comment)
+      values (
+        ${data.kind}, ${number}, ${data.payDate}, ${data.partnerId},
+        ${data.documentId ?? null}, ${data.amount}, ${data.method}, ${data.comment ?? ""}
+      )
+      returning id
+    `;
+    const created = await sql<Record<string, unknown>>`
+      select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
+             p.amount, p.method, p.comment, c.name as partner_name,
+             d.number as document_number, d.type as document_type
+      from payments p
+      join counterparties c on c.id = p.partner_id
+      left join documents d on d.id = p.document_id
+      where p.id = ${num(rows[0].id)}
+    `;
+    return mapPayment(created[0]);
+  });
+
+export const deletePayment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number() }))
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const sql = await withDb();
+    await sql`delete from payments where id = ${data.id}`;
+    return { ok: true };
+  });
+
+export const shipOrder = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number() }))
+  .handler(async ({ data }): Promise<{ id: number }> => {
+    const sql = await withDb();
+    const orders = await sql<Record<string, unknown>>`
+      select * from documents where id = ${data.id}
+    `;
+    if (!orders[0]) throw new Error("Заказ не найден");
+    const order = orders[0];
+    if (String(order.type) !== "order") throw new Error("Отгрузить можно только заказ");
+    const existing = await sql<{ id: number }>`
+      select id from documents where source_id = ${data.id} and type = 'sale' limit 1
+    `;
+    if (existing[0]) return { id: existing[0].id };
+    if (!order.counterparty_id) throw new Error("У заказа нет покупателя");
+    if (!order.warehouse_id) throw new Error("У заказа нет склада");
+    const lines = await sql<{ product_id: number; qty: unknown; price: unknown; amount: unknown }>`
+      select product_id, qty, price, amount from document_lines where document_id = ${data.id} order by id
+    `;
+    if (lines.length === 0) throw new Error("В заказе нет строк");
+    const number = await nextNumber("sale");
+    const inserted = await sql<{ id: number }>`
+      insert into documents (
+        type, number, doc_date, status,
+        warehouse_id, counterparty_id, comment, source_id
+      ) values (
+        'sale', ${number}, ${String(order.doc_date).slice(0, 10)}, 'draft',
+        ${num(order.warehouse_id)}, ${num(order.counterparty_id)},
+        ${`Из заказа ${String(order.number)}`}, ${data.id}
+      )
+      returning id
+    `;
+    const saleId = inserted[0].id;
+    for (const line of lines) {
+      await sql`
+        insert into document_lines (document_id, product_id, qty, price, amount)
+        values (${saleId}, ${line.product_id}, ${num(line.qty)}, ${num(line.price)}, ${num(line.amount)})
+      `;
+    }
+    return { id: saleId };
   });

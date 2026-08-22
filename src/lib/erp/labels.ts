@@ -1,4 +1,4 @@
-import type { DocStatus, DocType, PartnerKind, PeriodKey } from "./types";
+import type { DocStatus, DocType, PartnerKind, PayKind, PayMethod, PeriodKey } from "./types";
 
 export const COMPANY = "Севертрейд";
 export const APP_NAME = "Ось";
@@ -46,3 +46,22 @@ export const CATEGORIES = [
 ] as const;
 
 export const UNITS = ["шт", "меш", "м²", "уп", "рул", "бух", "м"] as const;
+
+export const PAY_KIND_LABEL: Record<PayKind, string> = {
+  in: "Оплата от клиента",
+  out: "Оплата поставщику",
+};
+
+export const PAY_METHOD_LABEL: Record<PayMethod, string> = {
+  cash: "Наличные",
+  bank: "Банк",
+  kaspi: "Kaspi",
+};
+
+export const PROCESS_STEPS = [
+  { n: 1, label: "Товар", hint: "Завести в номенклатуру", to: "/catalog" },
+  { n: 2, label: "Приёмка", hint: "Закупить у поставщика", to: "/documents/new", search: { type: "purchase" as const } },
+  { n: 3, label: "Заказ", hint: "Заявка покупателя", to: "/documents/new", search: { type: "order" as const } },
+  { n: 4, label: "Деньги", hint: "Получить оплату", to: "/money" },
+  { n: 5, label: "Отгрузка", hint: "Отдать товар", to: "/documents/new", search: { type: "sale" as const } },
+] as const;

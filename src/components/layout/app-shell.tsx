@@ -10,6 +10,7 @@ import {
   Plus,
   Menu,
   Users,
+  Banknote,
 } from "lucide-react";
 import { APP_NAME, COMPANY, DOC_TYPE_LABEL } from "@/lib/erp/labels";
 import type { DocType } from "@/lib/erp/types";
@@ -33,6 +34,7 @@ const GROUPS = [
     items: [
       { to: "/", label: "Дашборд", icon: LayoutDashboard },
       { to: "/documents", label: "Документы", icon: FileText },
+      { to: "/money", label: "Деньги", icon: Banknote },
       { to: "/stock", label: "Остатки", icon: Warehouse },
     ],
   },
@@ -163,6 +165,23 @@ function CreateMenu({ compact }: { compact?: boolean }) {
             </Link>
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/money" search={{ new: "in" }}>
+            <span className="flex flex-col">
+              <span>Оплата от клиента</span>
+              <span className="text-xs text-muted-foreground">Получил деньги</span>
+            </span>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/money" search={{ new: "out" }}>
+            <span className="flex flex-col">
+              <span>Оплата поставщику</span>
+              <span className="text-xs text-muted-foreground">Заплатил за товар</span>
+            </span>
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

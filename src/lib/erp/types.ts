@@ -10,6 +10,8 @@ export type DocType = (typeof DOC_TYPES)[number];
 export type DocStatus = "draft" | "posted";
 export type PartnerKind = "buyer" | "supplier" | "both";
 export type PeriodKey = "month" | "30d" | "quarter";
+export type PayKind = "in" | "out";
+export type PayMethod = "cash" | "bank" | "kaspi";
 
 export function isDocType(v: unknown): v is DocType {
   return typeof v === "string" && (DOC_TYPES as readonly string[]).includes(v);
@@ -53,6 +55,21 @@ export type Employee = {
   name: string;
   email: string;
   createdAt: string;
+};
+
+export type Payment = {
+  id: number;
+  kind: PayKind;
+  number: string;
+  payDate: string;
+  partnerId: number;
+  partnerName: string;
+  documentId: number | null;
+  documentNumber: string | null;
+  documentType: DocType | null;
+  amount: number;
+  method: PayMethod;
+  comment: string;
 };
 
 export type DocumentLine = {
@@ -103,6 +120,13 @@ export type DocumentDetail = {
   partnerName: string | null;
   comment: string;
   postedAt: string | null;
+  sourceId: number | null;
+  sourceNumber: string | null;
+  paidAmount: number;
+  dueAmount: number;
+  payments: Payment[];
+  shipmentId: number | null;
+  shipmentNumber: string | null;
   lines: DocumentLine[];
   moves: StockMove[];
   amount: number;
@@ -147,6 +171,10 @@ export type DashboardData = {
   }[];
   warehouseValues: { id: number; name: string; city: string; value: number }[];
   topProducts: { productId: number; name: string; qty: number; amount: number }[];
+  incoming: number;
+  outgoing: number;
+  receivable: number;
+  payable: number;
 };
 
 export type ReportData = {

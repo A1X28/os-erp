@@ -13,7 +13,7 @@ import {
 import { getDashboard } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { formatDateShort, money, pct, qtyFmt } from "@/lib/erp/format";
-import { COMPANY, PERIOD_LABEL } from "@/lib/erp/labels";
+import { COMPANY, PERIOD_LABEL, PROCESS_STEPS } from "@/lib/erp/labels";
 import type { PeriodKey } from "@/lib/erp/types";
 import { StatusBadge, TypeBadge } from "@/components/erp/status-badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,28 @@ function Dashboard() {
         </div>
       </div>
 
+      <ol className="mb-6 flex gap-1 overflow-x-auto pb-1">
+        {PROCESS_STEPS.map((step, i) => (
+          <li key={step.n} className="flex shrink-0 items-center gap-1">
+            <Link
+              to={step.to}
+              search={"search" in step ? step.search : undefined}
+              className="flex h-10 items-center gap-2 rounded-full bg-card px-3 text-sm shadow-[var(--shadow-border)]"
+            >
+              <span className="grid size-5 place-items-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                {step.n}
+              </span>
+              {step.label}
+            </Link>
+            {i < PROCESS_STEPS.length - 1 ? (
+              <span className="px-0.5 text-muted-foreground" aria-hidden>
+                →
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
           label="Выручка"
@@ -97,6 +119,19 @@ function Dashboard() {
           label="Заказы"
           value={data ? String(data.openOrders) : null}
           hint={data ? money(data.openOrdersAmount) : undefined}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Kpi
+          label="Нам должны"
+          value={data ? money(data.receivable) : null}
+          hint="незакрытые заказы и отгрузки"
+        />
+        <Kpi
+          label="Мы должны"
+          value={data ? money(data.payable) : null}
+          hint="незакрытые приёмки"
         />
       </div>
 
