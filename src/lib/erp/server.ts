@@ -5,13 +5,14 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
 import { num } from "./format";
-import { lockStock, withTx } from "./guard";
+import { lockDocument, lockNumber, lockStock, withTx } from "./guard";
 import {
   availableQty,
   findSaleInChain,
   notEnough,
   shippedInChain,
 } from "./stock";
+import type { Sql } from "@/lib/db";
 import { DOC_TYPE_SHORT, FOLLOW_TO } from "./labels";
 import type {
   DashboardData,
@@ -724,8 +725,8 @@ const documentInput = z.object({
   lines: z.array(lineInput).min(1),
 });
 
-async function nextNumber(type: DocType): Promise<string> {
-  const sql = await withDb();
+async function nextNumber(sql: Sql, type: DocType): Promise<string> {
+  await lockNumber(sql, `doc:${type}`);
   const prefix = DOC_TYPE_SHORT[type];
   const rows = await sql<{ number: string }>`
     select number from documents where type = ${type} order by id desc limit 1
@@ -753,11 +754,9 @@ export const saveDocument = createServerFn({ method: "POST" })
 
     let id = data.id;
     if (id) {
-      const existing = await sql<{ status: string }>`
-        select status from documents where id = ${id}
-      `;
-      if (!existing[0]) throw new Error("Документ не найден");
-      if (existing[0].status === "posted") {
+      const existing = await lockDocument(sql, id);
+      if (!existing) throw new Error("Документ не найден");
+      if (String(existing.status) === "posted") {
         throw new Error("Проведённый документ нельзя менять — сначала отмените проведение");
       }
       await sql`
@@ -773,7 +772,7 @@ export const saveDocument = createServerFn({ method: "POST" })
       `;
       await sql`delete from document_lines where document_id = ${id}`;
     } else {
-      const number = await nextNumber(data.type);
+      const number = await nextNumber(sql, data.type);
       const rows = await sql<{ id: number }>`
         insert into documents (
           type, number, doc_date, status,
@@ -805,11 +804,20 @@ export const postDocument = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
   .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
-    const docs = await sql<Record<string, unknown>>`
-      select * from documents where id = ${data.id}
-    `;
-    if (!docs[0]) throw new Error("Документ не найден");
-    const d = docs[0];
+    const peek = await sql.query<{ id: number; source_id: number | null }>(
+      "select id, source_id from documents where id = $1",
+      [data.id],
+    );
+    if (!peek[0]) throw new Error("Документ не найден");
+    const lockIds = [data.id];
+    if (peek[0].source_id != null) lockIds.push(Number(peek[0].source_id));
+    lockIds.sort((a, b) => a - b);
+    let d: Record<string, unknown> | undefined;
+    for (const lockId of lockIds) {
+      const row = await lockDocument(sql, lockId);
+      if (lockId === data.id) d = row;
+    }
+    if (!d) throw new Error("Документ не найден");
     if (String(d.status) === "posted") throw new Error("Документ уже проведён");
 
     const lines = await sql<{ product_id: number; qty: unknown; name: string }>`
@@ -913,13 +921,11 @@ export const unpostDocument = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
   .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
     return withTx(async (sql) => {
-    const docs = await sql<Record<string, unknown>>`
-      select * from documents where id = ${data.id}
-    `;
-    if (!docs[0]) throw new Error("Документ не найден");
-    if (String(docs[0].status) !== "posted") throw new Error("Документ не проведён");
+    const d = await lockDocument(sql, data.id);
+    if (!d) throw new Error("Документ не найден");
+    if (String(d.status) !== "posted") throw new Error("Документ не проведён");
 
-    const type = String(docs[0].type) as DocType;
+    const type = String(d.type) as DocType;
     const lines = await sql<{ product_id: number; qty: unknown; name: string }>`
       select l.product_id, l.qty, p.name
       from document_lines l
@@ -928,12 +934,12 @@ export const unpostDocument = createServerFn({ method: "POST" })
     `;
 
     if (type === "purchase" || type === "sale" || type === "writeoff") {
-      const warehouseId = num(docs[0].warehouse_id);
+      const warehouseId = num(d.warehouse_id);
       for (const line of lines) await lockStock(sql, line.product_id, warehouseId);
     }
     if (type === "transfer") {
-      const fromId = num(docs[0].from_warehouse_id);
-      const toId = num(docs[0].to_warehouse_id);
+      const fromId = num(d.from_warehouse_id);
+      const toId = num(d.to_warehouse_id);
       for (const line of lines) {
         await lockStock(sql, line.product_id, fromId);
         await lockStock(sql, line.product_id, toId);
@@ -950,7 +956,7 @@ export const unpostDocument = createServerFn({ method: "POST" })
     }
 
     if (type === "purchase") {
-      const warehouseId = num(docs[0].warehouse_id);
+      const warehouseId = num(d.warehouse_id);
       const missing: string[] = [];
       for (const line of lines) {
         const have = await stockAt(line.product_id, warehouseId);
@@ -968,7 +974,7 @@ export const unpostDocument = createServerFn({ method: "POST" })
     }
 
     if (type === "transfer") {
-      const toId = num(docs[0].to_warehouse_id);
+      const toId = num(d.to_warehouse_id);
       const missing: string[] = [];
       for (const line of lines) {
         const have = await stockAt(line.product_id, toId);
@@ -994,16 +1000,15 @@ export const unpostDocument = createServerFn({ method: "POST" })
 export const deleteDraft = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number() }))
   .middleware([authMiddleware]).handler(async ({ data }): Promise<{ ok: true }> => {
-    const sql = await withDb();
-    const docs = await sql<{ status: string }>`
-      select status from documents where id = ${data.id}
-    `;
-    if (!docs[0]) throw new Error("Документ не найден");
-    if (docs[0].status !== "draft") {
+    return withTx(async (sql) => {
+    const docs = await lockDocument(sql, data.id);
+    if (!docs) throw new Error("Документ не найден");
+    if (String(docs.status) !== "draft") {
       throw new Error("Удалять можно только черновик");
     }
     await sql`delete from documents where id = ${data.id}`;
     return { ok: true };
+    });
   });
 
 export const getDashboard = createServerFn({ method: "GET" })
@@ -1327,8 +1332,8 @@ export const createEmployee = createServerFn({ method: "POST" })
     return { id, name: data.name, email, createdAt: new Date().toISOString().slice(0, 10) };
   });
 
-async function nextPaymentNumber(kind: PayKind): Promise<string> {
-  const sql = await withDb();
+async function nextPaymentNumber(sql: Sql, kind: PayKind): Promise<string> {
+  await lockNumber(sql, `pay:${kind}`);
   const prefix = kind === "in" ? "ОПЛ" : "ВЫП";
   const rows = await sql<{ number: string }>`
     select number from payments where kind = ${kind} order by id desc limit 1
@@ -1383,14 +1388,12 @@ export const savePayment = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Payment> => {
     return withTx(async (sql) => {
     if (data.documentId) {
-      const docs = await sql<{ id: number; counterparty_id: number | null; type: string }>`
-        select id, counterparty_id, type from documents where id = ${data.documentId}
-      `;
-      if (!docs[0]) throw new Error("Документ не найден");
-      if (docs[0].counterparty_id && num(docs[0].counterparty_id) !== data.partnerId) {
+      const docs = await lockDocument(sql, data.documentId);
+      if (!docs) throw new Error("Документ не найден");
+      if (docs.counterparty_id && num(docs.counterparty_id) !== data.partnerId) {
         throw new Error("Контрагент не совпадает с документом");
       }
-      const dtype = docs[0].type;
+      const dtype = String(docs.type);
       if (data.kind === "in" && !["order", "invoice", "sale"].includes(dtype)) {
         throw new Error("Входящая оплата только к заказу, счёту или отгрузке покупателя");
       }
@@ -1398,7 +1401,7 @@ export const savePayment = createServerFn({ method: "POST" })
         throw new Error("Исходящая оплата только к заказу, счёту или приёмке поставщика");
       }
     }
-    const number = await nextPaymentNumber(data.kind);
+    const number = await nextPaymentNumber(sql, data.kind);
     const rows = await sql<Record<string, unknown>>`
       insert into payments (kind, number, pay_date, partner_id, document_id, amount, method, comment)
       values (
@@ -1424,9 +1427,10 @@ export const deletePayment = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ id: z.number() }))
   .handler(async ({ data }): Promise<{ ok: true }> => {
-    const sql = await withDb();
+    return withTx(async (sql) => {
     await sql`delete from payments where id = ${data.id}`;
     return { ok: true };
+    });
   });
 
 export const followOn = createServerFn({ method: "POST" })
@@ -1438,12 +1442,9 @@ export const followOn = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }): Promise<{ id: number }> => {
-    const sql = await withDb();
-    const docs = await sql<Record<string, unknown>>`
-      select * from documents where id = ${data.id}
-    `;
-    if (!docs[0]) throw new Error("Документ не найден");
-    const src = docs[0];
+    return withTx(async (sql) => {
+    const src = await lockDocument(sql, data.id);
+    if (!src) throw new Error("Документ не найден");
     const fromType = String(src.type) as DocType;
     const toType = (data.toType ?? FOLLOW_TO[fromType]) as DocType | undefined;
     if (!toType) throw new Error("Из этого документа дальше идти некуда");
@@ -1465,7 +1466,7 @@ export const followOn = createServerFn({ method: "POST" })
       select product_id, qty, price, amount from document_lines where document_id = ${data.id} order by id
     `;
     if (lines.length === 0) throw new Error("Нет строк");
-    const number = await nextNumber(toType);
+    const number = await nextNumber(sql, toType);
     const inserted = await sql<{ id: number }>`
       insert into documents (
         type, number, doc_date, status,
@@ -1499,20 +1500,22 @@ export const followOn = createServerFn({ method: "POST" })
       throw new Error("По этому заказу уже всё отгружено");
     }
     return { id };
+    });
   });
 
 export const setInTransit = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ id: z.number(), value: z.boolean() }))
   .handler(async ({ data }): Promise<{ ok: true }> => {
-    const sql = await withDb();
-    const docs = await sql<{ type: string }>`select type from documents where id = ${data.id}`;
-    if (!docs[0]) throw new Error("Документ не найден");
-    if (docs[0].type !== "po" && docs[0].type !== "bill") {
+    return withTx(async (sql) => {
+    const docs = await lockDocument(sql, data.id);
+    if (!docs) throw new Error("Документ не найден");
+    if (String(docs.type) !== "po" && String(docs.type) !== "bill") {
       throw new Error("В пути отмечают заказ поставщику или его счёт");
     }
     await sql`update documents set in_transit = ${data.value} where id = ${data.id}`;
     return { ok: true };
+    });
   });
 
 export const listInTransit = createServerFn({ method: "GET" })

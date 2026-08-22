@@ -58,6 +58,7 @@ export interface Sql {
  */
 const globalRef = globalThis as typeof globalThis & {
   __pgSqlPromise__?: Promise<Sql>;
+  __pgPool__?: import("pg").Pool;
   __pgliteInstance__?: Promise<import("@electric-sql/pglite").PGlite>;
   __pgliteMigrateChain__?: Promise<void>;
 };
@@ -107,10 +108,11 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = new Pool({
       connectionString: databaseUrl,
-      max: 1,
+      max: 4,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 8_000,
     });
+    globalRef.__pgPool__ = pool;
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -209,6 +211,73 @@ export function getSql(): Promise<Sql> {
     throw err;
   });
   return sqlPromise;
+}
+
+function isRetryableTx(e: unknown): boolean {
+  const code =
+    e && typeof e === "object" && "code" in e
+      ? String((e as { code?: string }).code)
+      : "";
+  if (code === "40001" || code === "40P01") return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return /could not serialize|deadlock detected/i.test(msg);
+}
+
+/**
+ * One ACID unit: a single connection, SERIALIZABLE, commit or full rollback.
+ * Retries serialization/deadlock a few times so concurrent posts don't lie.
+ */
+export async function runTransaction<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
+  await getSql();
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      if (dbSource === "neon") {
+        const pool = globalRef.__pgPool__;
+        if (!pool) throw new Error("Postgres pool is not ready");
+        const client = await pool.connect();
+        const sql = toSql(async <TRow>(text: string, params: unknown[]) => {
+          const res = await client.query(text, params);
+          return res.rows as TRow[];
+        });
+        try {
+          await client.query("BEGIN");
+          await client.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+          const out = await fn(sql);
+          await client.query("COMMIT");
+          return out;
+        } catch (e) {
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            // connection died
+          }
+          throw e;
+        } finally {
+          client.release();
+        }
+      }
+      const pg = await globalRef.__pgliteInstance__;
+      if (!pg) throw new Error("PGLite is not ready");
+      return await pg.transaction(async (tx) => {
+        try {
+          await tx.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+        } catch {
+          // already inside a transaction; isolation may stay default
+        }
+        const sql = toSql(async <TRow>(text: string, params: unknown[]) => {
+          const result = await tx.query<TRow>(text, params);
+          return result.rows;
+        });
+        return fn(sql);
+      });
+    } catch (e) {
+      last = e;
+      if (attempt < 2 && isRetryableTx(e)) continue;
+      throw e;
+    }
+  }
+  throw last;
 }
 
 /**

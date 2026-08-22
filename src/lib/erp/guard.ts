@@ -1,4 +1,5 @@
 import type { Sql } from "@/lib/db";
+import { runTransaction } from "@/lib/db";
 import { withDb } from "./db";
 
 export function mapDbError(e: unknown): Error {
@@ -10,6 +11,9 @@ export function mapDbError(e: unknown): Error {
     .replace(/\s+Where:.*$/i, "")
     .trim();
   if (/[А-Яа-яЁё]/.test(text)) return new Error(text);
+  if (/could not serialize|deadlock detected/i.test(text)) {
+    return new Error("Документ сейчас проводит кто-то ещё — повторите через секунду");
+  }
   if (text.includes("duplicate key")) return new Error("Такой номер уже есть");
   if (text.includes("violates foreign key")) {
     return new Error("Ссылка на несуществующую запись");
@@ -25,22 +29,29 @@ export function mapDbError(e: unknown): Error {
 }
 
 export async function withTx<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
-  const sql = await withDb();
-  await sql.query("begin");
+  await withDb();
   try {
-    const out = await fn(sql);
-    await sql.query("commit");
-    return out;
+    return await runTransaction(fn);
   } catch (e) {
-    try {
-      await sql.query("rollback");
-    } catch {
-      // connection already aborted
-    }
     throw mapDbError(e);
   }
 }
 
 export async function lockStock(sql: Sql, productId: number, warehouseId: number) {
   await sql.query("select pg_advisory_xact_lock($1, $2)", [productId, warehouseId]);
+}
+
+export async function lockDocument(
+  sql: Sql,
+  id: number,
+): Promise<Record<string, unknown> | undefined> {
+  const rows = await sql.query<Record<string, unknown>>(
+    "select * from documents where id = $1 for update",
+    [id],
+  );
+  return rows[0];
+}
+
+export async function lockNumber(sql: Sql, key: string) {
+  await sql.query("select pg_advisory_xact_lock(hashtext($1))", [key]);
 }
