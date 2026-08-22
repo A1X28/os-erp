@@ -14,7 +14,7 @@ import {
   remainingForFollow,
 } from "./stock";
 import type { Sql } from "@/lib/db";
-import { DOC_TYPE_SHORT, FOLLOW_TO } from "./labels";
+import { DOC_TYPE_SHORT, FOLLOW_TO, DOC_TYPE_LABEL, PAY_KIND_LABEL } from "./labels";
 import type {
   DashboardData,
   DocStatus,
@@ -26,6 +26,9 @@ import type {
   Me,
   Partner,
   PartnerKind,
+  PartnerSettle,
+  SettleBalance,
+  SettleEntry,
   PayKind,
   PayMethod,
   Payment,
@@ -42,7 +45,7 @@ import type {
   TaxEstimate,
   Currency,
 } from "./types";
-import { DOC_TYPES, DEFAULT_COMPANY, CURRENCIES } from "./types";
+import { DOC_TYPES, DEFAULT_COMPANY, CURRENCIES, isDocType } from "./types";
 
 function periodSql(period: PeriodKey): { from: string; label: string } {
   const now = new Date();
@@ -119,6 +122,8 @@ function mapPartner(r: Record<string, unknown>): Partner {
     kind: String(r.kind) as PartnerKind,
     city: String(r.city ?? ""),
     phone: String(r.phone ?? ""),
+    receivableBase: num(r.receivable_base),
+    payableBase: num(r.payable_base),
   };
 }
 
@@ -417,6 +422,46 @@ export const saveProduct = createServerFn({ method: "POST" })
     return mapProduct({ ...rows[0], stock: 0 });
   });
 
+const SETTLE_MOVES = `
+with posted as (
+  select d.id, d.counterparty_id as partner_id, d.type, d.currency, d.fx_rate,
+         d.doc_date as dt, d.number, os_chain_root(d.id) as root,
+         coalesce((select sum(l.amount) from document_lines l where l.document_id = d.id), 0) as amount
+  from documents d
+  where d.status = 'posted'
+    and d.counterparty_id is not null
+    and d.type in ('invoice', 'sale', 'sale_return', 'bill', 'purchase', 'purchase_return')
+),
+flags as (
+  select partner_id, root,
+    bool_or(type = 'sale') as has_sale,
+    bool_or(type = 'purchase') as has_purchase
+  from posted
+  group by partner_id, root
+),
+docs as (
+  select p.partner_id, p.dt, p.id as doc_id, null::int as pay_id, p.number, p.type,
+         p.currency, p.fx_rate,
+         case when p.type in ('sale', 'invoice', 'sale_return') then 'receivable' else 'payable' end as side,
+         case when p.type in ('sale_return', 'purchase_return') then -p.amount else p.amount end as amount
+  from posted p
+  join flags f on f.partner_id = p.partner_id and f.root = p.root
+  where p.type in ('sale', 'sale_return', 'purchase', 'purchase_return')
+     or (p.type = 'invoice' and not f.has_sale)
+     or (p.type = 'bill' and not f.has_purchase)
+),
+pays as (
+  select p.partner_id, p.pay_date as dt, null::int as doc_id, p.id as pay_id, p.number,
+         p.kind as type, p.currency, p.fx_rate,
+         case when p.kind = 'in' then 'receivable' else 'payable' end as side,
+         -p.amount as amount
+  from payments p
+)
+select * from docs
+union all
+select * from pays
+`;
+
 export const listPartners = createServerFn({ method: "GET" })
   .validator(
     z.object({
@@ -428,18 +473,29 @@ export const listPartners = createServerFn({ method: "GET" })
     const sql = await withDb();
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const kind = data.kind && data.kind !== "all" ? data.kind : null;
-    const rows = await sql<Record<string, unknown>>`
-      select * from counterparties
-      where (${q}::text is null
-        or lower(name) like ${q}
-        or inn like ${q})
-        and (
-          ${kind}::text is null
-          or kind = ${kind}
-          or kind = 'both'
-        )
-      order by name
-    `;
+    const rows = await sql.query<Record<string, unknown>>(
+      `select c.*,
+          coalesce(b.receivable_base, 0) as receivable_base,
+          coalesce(b.payable_base, 0) as payable_base
+        from counterparties c
+        left join (
+          select partner_id,
+            sum(case when side = 'receivable' then amount * fx_rate else 0 end) as receivable_base,
+            sum(case when side = 'payable' then amount * fx_rate else 0 end) as payable_base
+          from (${SETTLE_MOVES}) m
+          group by partner_id
+        ) b on b.partner_id = c.id
+        where ($1::text is null
+          or lower(c.name) like $1
+          or c.inn like $1)
+          and (
+            $2::text is null
+            or c.kind = $2
+            or c.kind = 'both'
+          )
+        order by c.name`,
+      [q, kind],
+    );
     return rows.map(mapPartner);
   });
 
@@ -479,6 +535,65 @@ export const savePartner = createServerFn({ method: "POST" })
       returning *
     `;
     return mapPartner(rows[0]);
+  });
+
+export const getPartnerSettle = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number() }))
+  .handler(async ({ data }): Promise<PartnerSettle> => {
+    const sql = await withDb();
+    const partners = await sql.query<Record<string, unknown>>(
+      `select c.*,
+          coalesce(b.receivable_base, 0) as receivable_base,
+          coalesce(b.payable_base, 0) as payable_base
+        from counterparties c
+        left join (
+          select partner_id,
+            sum(case when side = 'receivable' then amount * fx_rate else 0 end) as receivable_base,
+            sum(case when side = 'payable' then amount * fx_rate else 0 end) as payable_base
+          from (${SETTLE_MOVES}) m
+          where partner_id = $1
+          group by partner_id
+        ) b on b.partner_id = c.id
+        where c.id = $1`,
+      [data.id],
+    );
+    if (!partners[0]) throw new Error("Контрагент не найден");
+    const moves = await sql.query<Record<string, unknown>>(
+      `select * from (${SETTLE_MOVES}) m
+        where partner_id = $1
+        order by dt, coalesce(doc_id, 0), coalesce(pay_id, 0)`,
+      [data.id],
+    );
+    const byCur = new Map<string, SettleBalance>();
+    const entries: SettleEntry[] = moves.map((r) => {
+      const currency = String(r.currency ?? "RUB") as Currency;
+      const side = r.side === "payable" ? "payable" : "receivable";
+      const amount = num(r.amount);
+      const cur = byCur.get(currency) ?? { currency, receivable: 0, payable: 0 };
+      if (side === "receivable") cur.receivable += amount;
+      else cur.payable += amount;
+      byCur.set(currency, cur);
+      const type = String(r.type);
+      const title = isDocType(type)
+        ? DOC_TYPE_LABEL[type]
+        : PAY_KIND_LABEL[type as PayKind] ?? type;
+      return {
+        date: String(r.dt).slice(0, 10),
+        number: String(r.number),
+        title,
+        docId: r.doc_id == null ? null : num(r.doc_id),
+        payId: r.pay_id == null ? null : num(r.pay_id),
+        currency,
+        amount,
+        side,
+      };
+    });
+    return {
+      partner: mapPartner(partners[0]),
+      balances: [...byCur.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
+      entries,
+    };
   });
 
 export const listStock = createServerFn({ method: "GET" })

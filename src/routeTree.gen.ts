@@ -25,6 +25,8 @@ import { Route as CatalogIdRouteImport } from './routes/catalog.$id'
 import { Route as DocumentsIndexRouteImport } from './routes/documents.index'
 import { Route as DocumentsIdRouteImport } from './routes/documents.$id'
 import { Route as DocumentsNewRouteImport } from './routes/documents.new'
+import { Route as PartnersIndexRouteImport } from './routes/partners.index'
+import { Route as PartnersIdRouteImport } from './routes/partners.$id'
 import { Route as PrintIdRouteImport } from './routes/print.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiCronPeriodsRouteImport } from './routes/api/cron/periods'
@@ -109,6 +111,16 @@ const DocumentsNewRoute = DocumentsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => DocumentsRoute,
 } as any)
+const PartnersIndexRoute = PartnersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PartnersRoute,
+} as any)
+const PartnersIdRoute = PartnersIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => PartnersRoute,
+} as any)
 const PrintIdRoute = PrintIdRouteImport.update({
   id: '/print/$id',
   path: '/print/$id',
@@ -132,7 +144,7 @@ export interface FileRoutesByFullPath {
   '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
   '/money': typeof MoneyRoute
-  '/partners': typeof PartnersRoute
+  '/partners': typeof PartnersRouteWithChildren
   '/periods': typeof PeriodsRoute
   '/reports': typeof ReportsRoute
   '/staff': typeof StaffRoute
@@ -140,9 +152,11 @@ export interface FileRoutesByFullPath {
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
   '/documents/new': typeof DocumentsNewRoute
+  '/partners/$id': typeof PartnersIdRoute
   '/print/$id': typeof PrintIdRoute
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
+  '/partners/': typeof PartnersIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/periods': typeof ApiCronPeriodsRoute
 }
@@ -151,7 +165,6 @@ export interface FileRoutesByTo {
   '/company': typeof CompanyRoute
   '/login': typeof LoginRoute
   '/money': typeof MoneyRoute
-  '/partners': typeof PartnersRoute
   '/periods': typeof PeriodsRoute
   '/reports': typeof ReportsRoute
   '/staff': typeof StaffRoute
@@ -159,9 +172,11 @@ export interface FileRoutesByTo {
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
   '/documents/new': typeof DocumentsNewRoute
+  '/partners/$id': typeof PartnersIdRoute
   '/print/$id': typeof PrintIdRoute
   '/catalog': typeof CatalogIndexRoute
   '/documents': typeof DocumentsIndexRoute
+  '/partners': typeof PartnersIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/periods': typeof ApiCronPeriodsRoute
 }
@@ -173,7 +188,7 @@ export interface FileRoutesById {
   '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
   '/money': typeof MoneyRoute
-  '/partners': typeof PartnersRoute
+  '/partners': typeof PartnersRouteWithChildren
   '/periods': typeof PeriodsRoute
   '/reports': typeof ReportsRoute
   '/staff': typeof StaffRoute
@@ -181,9 +196,11 @@ export interface FileRoutesById {
   '/catalog/$id': typeof CatalogIdRoute
   '/documents/$id': typeof DocumentsIdRoute
   '/documents/new': typeof DocumentsNewRoute
+  '/partners/$id': typeof PartnersIdRoute
   '/print/$id': typeof PrintIdRoute
   '/catalog/': typeof CatalogIndexRoute
   '/documents/': typeof DocumentsIndexRoute
+  '/partners/': typeof PartnersIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/periods': typeof ApiCronPeriodsRoute
 }
@@ -204,9 +221,11 @@ export interface FileRouteTypes {
     | '/catalog/$id'
     | '/documents/$id'
     | '/documents/new'
+    | '/partners/$id'
     | '/print/$id'
     | '/catalog/'
     | '/documents/'
+    | '/partners/'
     | '/api/auth/$'
     | '/api/cron/periods'
   fileRoutesByTo: FileRoutesByTo
@@ -215,7 +234,6 @@ export interface FileRouteTypes {
     | '/company'
     | '/login'
     | '/money'
-    | '/partners'
     | '/periods'
     | '/reports'
     | '/staff'
@@ -223,9 +241,11 @@ export interface FileRouteTypes {
     | '/catalog/$id'
     | '/documents/$id'
     | '/documents/new'
+    | '/partners/$id'
     | '/print/$id'
     | '/catalog'
     | '/documents'
+    | '/partners'
     | '/api/auth/$'
     | '/api/cron/periods'
   id:
@@ -244,9 +264,11 @@ export interface FileRouteTypes {
     | '/catalog/$id'
     | '/documents/$id'
     | '/documents/new'
+    | '/partners/$id'
     | '/print/$id'
     | '/catalog/'
     | '/documents/'
+    | '/partners/'
     | '/api/auth/$'
     | '/api/cron/periods'
   fileRoutesById: FileRoutesById
@@ -258,7 +280,7 @@ export interface RootRouteChildren {
   DocumentsRoute: typeof DocumentsRouteWithChildren
   LoginRoute: typeof LoginRoute
   MoneyRoute: typeof MoneyRoute
-  PartnersRoute: typeof PartnersRoute
+  PartnersRoute: typeof PartnersRouteWithChildren
   PeriodsRoute: typeof PeriodsRoute
   ReportsRoute: typeof ReportsRoute
   StaffRoute: typeof StaffRoute
@@ -382,6 +404,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocumentsNewRouteImport
       parentRoute: typeof DocumentsRoute
     }
+    '/partners/': {
+      id: '/partners/'
+      path: '/'
+      fullPath: '/partners/'
+      preLoaderRoute: typeof PartnersIndexRouteImport
+      parentRoute: typeof PartnersRoute
+    }
+    '/partners/$id': {
+      id: '/partners/$id'
+      path: '/$id'
+      fullPath: '/partners/$id'
+      preLoaderRoute: typeof PartnersIdRouteImport
+      parentRoute: typeof PartnersRoute
+    }
     '/print/$id': {
       id: '/print/$id'
       path: '/print/$id'
@@ -435,6 +471,20 @@ const DocumentsRouteWithChildren = DocumentsRoute._addFileChildren(
   DocumentsRouteChildren,
 )
 
+interface PartnersRouteChildren {
+  PartnersIdRoute: typeof PartnersIdRoute
+  PartnersIndexRoute: typeof PartnersIndexRoute
+}
+
+const PartnersRouteChildren: PartnersRouteChildren = {
+  PartnersIdRoute: PartnersIdRoute,
+  PartnersIndexRoute: PartnersIndexRoute,
+}
+
+const PartnersRouteWithChildren = PartnersRoute._addFileChildren(
+  PartnersRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CatalogRoute: CatalogRouteWithChildren,
@@ -442,7 +492,7 @@ const rootRouteChildren: RootRouteChildren = {
   DocumentsRoute: DocumentsRouteWithChildren,
   LoginRoute: LoginRoute,
   MoneyRoute: MoneyRoute,
-  PartnersRoute: PartnersRoute,
+  PartnersRoute: PartnersRouteWithChildren,
   PeriodsRoute: PeriodsRoute,
   ReportsRoute: ReportsRoute,
   StaffRoute: StaffRoute,

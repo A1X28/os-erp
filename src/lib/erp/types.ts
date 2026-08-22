@@ -62,6 +62,31 @@ export type Partner = {
   kind: PartnerKind;
   city: string;
   phone: string;
+  receivableBase: number;
+  payableBase: number;
+};
+
+export type SettleBalance = {
+  currency: Currency;
+  receivable: number;
+  payable: number;
+};
+
+export type SettleEntry = {
+  date: string;
+  number: string;
+  title: string;
+  docId: number | null;
+  payId: number | null;
+  currency: Currency;
+  amount: number;
+  side: "receivable" | "payable";
+};
+
+export type PartnerSettle = {
+  partner: Partner;
+  balances: SettleBalance[];
+  entries: SettleEntry[];
 };
 
 export type Employee = {
