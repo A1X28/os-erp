@@ -30,7 +30,11 @@ export function SettlePrint({
   periods: SettlePeriod[];
 }) {
   const ours = party(company.name, company.bin, company.address);
-  const theirs = party(partner.name, partner.inn || undefined, [partner.city, partner.phone].filter(Boolean).join(", "));
+  const theirs = party(
+    partner.name,
+    partner.inn || undefined,
+    [partner.city, partner.address, partner.phone].filter(Boolean).join(", "),
+  );
 
   return (
     <article className="mx-auto max-w-[190mm] bg-white px-1 py-2 text-black">

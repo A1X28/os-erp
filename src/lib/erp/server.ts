@@ -121,7 +121,11 @@ function mapPartner(r: Record<string, unknown>): Partner {
     inn: String(r.inn ?? ""),
     kind: String(r.kind) as PartnerKind,
     city: String(r.city ?? ""),
+    address: String(r.address ?? ""),
     phone: String(r.phone ?? ""),
+    bank: String(r.bank ?? ""),
+    iik: String(r.iik ?? ""),
+    bik: String(r.bik ?? ""),
     receivableBase: num(r.receivable_base),
     payableBase: num(r.payable_base),
   };
@@ -505,7 +509,11 @@ const partnerInput = z.object({
   inn: z.string().optional(),
   kind: z.enum(["buyer", "supplier", "both"]),
   city: z.string().optional(),
+  address: z.string().optional(),
   phone: z.string().optional(),
+  bank: z.string().optional(),
+  iik: z.string().optional(),
+  bik: z.string().optional(),
 });
 
 export const savePartner = createServerFn({ method: "POST" })
@@ -514,7 +522,11 @@ export const savePartner = createServerFn({ method: "POST" })
     const sql = await withDb();
     const inn = data.inn?.trim() ?? "";
     const city = data.city?.trim() ?? "";
+    const address = data.address?.trim() ?? "";
     const phone = data.phone?.trim() ?? "";
+    const bank = data.bank?.trim() ?? "";
+    const iik = data.iik?.trim() ?? "";
+    const bik = data.bik?.trim() ?? "";
     if (data.id) {
       const rows = await sql<Record<string, unknown>>`
         update counterparties set
@@ -522,7 +534,11 @@ export const savePartner = createServerFn({ method: "POST" })
           inn = ${inn},
           kind = ${data.kind},
           city = ${city},
-          phone = ${phone}
+          address = ${address},
+          phone = ${phone},
+          bank = ${bank},
+          iik = ${iik},
+          bik = ${bik}
         where id = ${data.id}
         returning *
       `;
@@ -530,8 +546,11 @@ export const savePartner = createServerFn({ method: "POST" })
       return mapPartner(rows[0]);
     }
     const rows = await sql<Record<string, unknown>>`
-      insert into counterparties (name, inn, kind, city, phone)
-      values (${data.name.trim()}, ${inn}, ${data.kind}, ${city}, ${phone})
+      insert into counterparties (name, inn, kind, city, address, phone, bank, iik, bik)
+      values (
+        ${data.name.trim()}, ${inn}, ${data.kind}, ${city}, ${address},
+        ${phone}, ${bank}, ${iik}, ${bik}
+      )
       returning *
     `;
     return mapPartner(rows[0]);
@@ -750,7 +769,11 @@ export const getDocument = createServerFn({ method: "GET" })
         c.name as partner_name,
         c.inn as partner_inn,
         c.city as partner_city,
+        c.address as partner_address,
         c.phone as partner_phone,
+        c.bank as partner_bank,
+        c.iik as partner_iik,
+        c.bik as partner_bik,
         src.number as source_number,
         (select s.id from documents s where s.source_id = d.id order by s.id desc limit 1) as shipment_id,
         (select s.number from documents s where s.source_id = d.id order by s.id desc limit 1) as shipment_number,
@@ -846,7 +869,11 @@ export const getDocument = createServerFn({ method: "GET" })
       partnerName: d.partner_name == null ? null : String(d.partner_name),
       partnerInn: d.partner_inn ? String(d.partner_inn) : null,
       partnerCity: d.partner_city ? String(d.partner_city) : null,
+      partnerAddress: d.partner_address ? String(d.partner_address) : null,
       partnerPhone: d.partner_phone ? String(d.partner_phone) : null,
+      partnerBank: d.partner_bank ? String(d.partner_bank) : null,
+      partnerIik: d.partner_iik ? String(d.partner_iik) : null,
+      partnerBik: d.partner_bik ? String(d.partner_bik) : null,
       comment: String(d.comment ?? ""),
       postedAt: d.posted_at == null ? null : String(d.posted_at),
       sourceId,

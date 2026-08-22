@@ -1,31 +1,16 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
-import { toast } from "sonner";
-import { listPartners, savePartner } from "@/lib/erp/server";
+import { listPartners } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { money } from "@/lib/erp/format";
 import { KIND_LABEL } from "@/lib/erp/labels";
-import type { Partner, PartnerKind } from "@/lib/erp/types";
+import type { PartnerKind } from "@/lib/erp/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { PartnerDialog } from "@/components/erp/partner-dialog";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/partners/")({
@@ -37,7 +22,7 @@ function PartnersPage() {
   const initial = Route.useLoaderData();
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<"all" | PartnerKind>("all");
-  const [editing, setEditing] = useState<Partner | null | "new">(null);
+  const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
 
   const list = useQuery({
@@ -57,7 +42,7 @@ function PartnersPage() {
             Покупатели и поставщики. В карточке — кто сколько должен.
           </p>
         </div>
-        <Button onClick={() => setEditing("new")}>Новый контрагент</Button>
+        <Button onClick={() => setCreating(true)}>Новый контрагент</Button>
       </div>
 
       <div className="mb-4 flex flex-col gap-3">
@@ -135,102 +120,13 @@ function PartnersPage() {
       </ul>
 
       <PartnerDialog
-        open={editing !== null}
-        partner={editing === "new" || editing === null ? undefined : editing}
-        onOpenChange={(v) => {
-          if (!v) setEditing(null);
-        }}
+        open={creating}
+        onOpenChange={setCreating}
         onSaved={() => {
-          setEditing(null);
+          setCreating(false);
           void qc.invalidateQueries({ queryKey: ["partners"] });
         }}
       />
     </div>
-  );
-}
-
-function PartnerDialog({
-  open,
-  onOpenChange,
-  onSaved,
-  partner,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  onSaved: () => void;
-  partner?: Partner;
-}) {
-  const [name, setName] = useState(partner?.name ?? "");
-  const [inn, setInn] = useState(partner?.inn ?? "");
-  const [kind, setKind] = useState<PartnerKind>(partner?.kind ?? "buyer");
-  const [city, setCity] = useState(partner?.city ?? "");
-  const [phone, setPhone] = useState(partner?.phone ?? "");
-
-  const mut = useMutation({
-    mutationFn: () =>
-      savePartner({
-        data: { id: partner?.id, name, inn, kind, city, phone },
-      }),
-    onSuccess: () => {
-      toast.success(partner ? "Сохранено" : "Контрагент создан");
-      onSaved();
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {partner ? "Контрагент" : "Новый контрагент"}
-          </DialogTitle>
-        </DialogHeader>
-        <form
-          className="grid gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            mut.mutate();
-          }}
-        >
-          <div className="grid gap-1.5">
-            <Label>Название</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Тип</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as PartnerKind)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="buyer">Покупатель</SelectItem>
-                <SelectItem value="supplier">Поставщик</SelectItem>
-                <SelectItem value="both">Покупатель и поставщик</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>БИН</Label>
-              <Input value={inn} onChange={(e) => setInn(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Город</Label>
-              <Input value={city} onChange={(e) => setCity(e.target.value)} />
-            </div>
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Телефон</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-          <DialogFooter>
-            <Button type="submit" disabled={mut.isPending}>
-              Сохранить
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

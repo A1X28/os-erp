@@ -62,7 +62,11 @@ export type Partner = {
   inn: string;
   kind: PartnerKind;
   city: string;
+  address: string;
   phone: string;
+  bank: string;
+  iik: string;
+  bik: string;
   receivableBase: number;
   payableBase: number;
 };
@@ -173,7 +177,11 @@ export type DocumentDetail = {
   partnerName: string | null;
   partnerInn: string | null;
   partnerCity: string | null;
+  partnerAddress: string | null;
   partnerPhone: string | null;
+  partnerBank: string | null;
+  partnerIik: string | null;
+  partnerBik: string | null;
   comment: string;
   postedAt: string | null;
   sourceId: number | null;

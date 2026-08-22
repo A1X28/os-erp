@@ -50,6 +50,7 @@ export function DocumentPrint({
         inn: doc.partnerInn,
         city: doc.partnerCity,
         phone: doc.partnerPhone,
+        extra: [doc.partnerAddress ?? ""],
       });
   const buyer = fromSupplier
     ? oursLine(ours)
@@ -58,10 +59,16 @@ export function DocumentPrint({
         inn: doc.partnerInn,
         city: doc.partnerCity,
         phone: doc.partnerPhone,
+        extra: [doc.partnerAddress ?? ""],
       });
-  const bankBits = [ours.bank, ours.iik && `ИИК ${ours.iik}`, ours.bik && `БИК ${ours.bik}`].filter(
+  const ourBank = [ours.bank, ours.iik && `ИИК ${ours.iik}`, ours.bik && `БИК ${ours.bik}`].filter(
     Boolean,
   ) as string[];
+  const theirBank = [
+    doc.partnerBank,
+    doc.partnerIik && `ИИК ${doc.partnerIik}`,
+    doc.partnerBik && `БИК ${doc.partnerBik}`,
+  ].filter(Boolean) as string[];
 
   return (
     <article className="mx-auto max-w-[190mm] bg-white px-1 py-2 text-black">
@@ -116,10 +123,16 @@ export function DocumentPrint({
             <dd>{doc.sourceNumber}</dd>
           </div>
         ) : null}
-        {BILL.includes(doc.type) && bankBits.length > 0 ? (
+        {doc.type === "invoice" && ourBank.length > 0 ? (
           <div>
             <dt className="text-xs text-neutral-500">Реквизиты для оплаты</dt>
-            <dd>{bankBits.join(" · ")}</dd>
+            <dd>{ourBank.join(" · ")}</dd>
+          </div>
+        ) : null}
+        {doc.type === "bill" && theirBank.length > 0 ? (
+          <div>
+            <dt className="text-xs text-neutral-500">Реквизиты поставщика</dt>
+            <dd>{theirBank.join(" · ")}</dd>
           </div>
         ) : null}
       </dl>

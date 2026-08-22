@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
+import { PartnerDialog } from "@/components/erp/partner-dialog";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/partners/$id")({
@@ -25,6 +26,7 @@ function PartnerCardPage() {
   const partnerId = Number(id);
   const qc = useQueryClient();
   const [pay, setPay] = useState<"in" | "out" | null>(null);
+  const [editing, setEditing] = useState(false);
   const [from, setFrom] = useState(() => yearStartIso(todayIso()));
   const [to, setTo] = useState(() => todayIso());
 
@@ -54,11 +56,14 @@ function PartnerCardPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {KIND_LABEL[p.kind]}
             {p.city ? ` · ${p.city}` : ""}
-            {p.inn ? ` · БИН ${p.inn}` : ""}
+            {p.inn ? ` · БИН/ИНН ${p.inn}` : ""}
             {p.phone ? ` · ${p.phone}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setEditing(true)}>
+            Реквизиты
+          </Button>
           <Button variant="outline" asChild>
             <Link
               to="/print/partner/$id"
@@ -74,6 +79,27 @@ function PartnerCardPage() {
           <Button onClick={() => setPay("in")}>Принять оплату</Button>
         </div>
       </div>
+
+      <dl className="mb-4 grid gap-x-6 gap-y-2 rounded-xl bg-card p-4 text-sm shadow-[var(--shadow-border)] sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-muted-foreground">Адрес</dt>
+          <dd>{[p.city, p.address].filter(Boolean).join(", ") || "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Телефон</dt>
+          <dd>{p.phone || "—"}</dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="text-xs text-muted-foreground">Банк</dt>
+          <dd>
+            {p.bank || p.iik || p.bik
+              ? [p.bank, p.iik && `ИИК ${p.iik}`, p.bik && `БИК ${p.bik}`]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "—"}
+          </dd>
+        </div>
+      </dl>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
         {data.balances.length === 0 ? (
@@ -165,6 +191,16 @@ function PartnerCardPage() {
         </div>
       </section>
 
+      <PartnerDialog
+        open={editing}
+        partner={p}
+        onOpenChange={setEditing}
+        onSaved={() => {
+          setEditing(false);
+          void qc.invalidateQueries({ queryKey: ["partner-settle", partnerId] });
+          void qc.invalidateQueries({ queryKey: ["partners"] });
+        }}
+      />
       <PaymentDialog
         open={pay !== null}
         onOpenChange={(v) => {
