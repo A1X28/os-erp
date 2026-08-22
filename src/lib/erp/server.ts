@@ -417,7 +417,8 @@ export const getDocument = createServerFn({ method: "GET" })
   .validator(z.object({ id: z.number() }))
   .middleware([authMiddleware]).handler(async ({ data }): Promise<DocumentDetail> => {
     const sql = await withDb();
-    const docs = await sql<Record<string, unknown>>`
+    const [docs, lineRows, moveRows] = await Promise.all([
+      sql<Record<string, unknown>>`
       select d.*,
         w.name as warehouse_name,
         wf.name as from_warehouse_name,
@@ -429,18 +430,16 @@ export const getDocument = createServerFn({ method: "GET" })
       left join warehouses wt on wt.id = d.to_warehouse_id
       left join counterparties c on c.id = d.counterparty_id
       where d.id = ${data.id}
-    `;
-    if (!docs[0]) throw new Error("Документ не найден");
-    const d = docs[0];
-    const lineRows = await sql<Record<string, unknown>>`
+    `,
+      sql<Record<string, unknown>>`
       select l.id, l.product_id, l.qty, l.price, l.amount,
              p.sku, p.name, p.unit
       from document_lines l
       join products p on p.id = l.product_id
       where l.document_id = ${data.id}
       order by l.id
-    `;
-    const moveRows = await sql<Record<string, unknown>>`
+    `,
+      sql<Record<string, unknown>>`
       select m.id, m.product_id, p.name as product_name,
              m.warehouse_id, w.name as warehouse_name, m.qty
       from stock_moves m
@@ -448,7 +447,10 @@ export const getDocument = createServerFn({ method: "GET" })
       join warehouses w on w.id = m.warehouse_id
       where m.document_id = ${data.id}
       order by m.id
-    `;
+    `,
+    ]);
+    if (!docs[0]) throw new Error("Документ не найден");
+    const d = docs[0];
     const lines: DocumentLine[] = lineRows.map((r) => ({
       id: num(r.id),
       productId: num(r.product_id),
@@ -762,117 +764,105 @@ export const getDashboard = createServerFn({ method: "GET" })
     const sql = await withDb();
     const { from, label } = periodSql(data.period);
 
-    const revenueRows = await sql<{ revenue: unknown; cogs: unknown; docs: unknown }>`
-      select
-        coalesce(sum(l.amount), 0) as revenue,
-        coalesce(sum(l.qty * p.purchase_price), 0) as cogs,
-        count(distinct d.id) as docs
-      from documents d
-      join document_lines l on l.document_id = d.id
-      join products p on p.id = l.product_id
-      where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
-    `;
+    const [revenueRows, stockRows, orders, low, byDay, recent, warehouseValues, top] =
+      await Promise.all([
+        sql<{ revenue: unknown; cogs: unknown; docs: unknown }>`
+          select
+            coalesce(sum(l.amount), 0) as revenue,
+            coalesce(sum(l.qty * p.purchase_price), 0) as cogs,
+            count(distinct d.id) as docs
+          from documents d
+          join document_lines l on l.document_id = d.id
+          join products p on p.id = l.product_id
+          where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
+        `,
+        sql<{ value: unknown }>`
+          select coalesce(sum(x.qty * p.purchase_price), 0) as value
+          from (
+            select product_id, sum(qty) as qty from stock_moves group by product_id
+          ) x
+          join products p on p.id = x.product_id
+        `,
+        sql<{ n: unknown; amount: unknown }>`
+          select count(*) as n,
+            coalesce(sum((select sum(amount) from document_lines l where l.document_id = d.id)), 0) as amount
+          from documents d
+          where d.type = 'order' and d.status = 'draft'
+        `,
+        sql<{
+          product_id: number;
+          sku: string;
+          name: string;
+          unit: string;
+          min_stock: unknown;
+          stock: unknown;
+          n_low: unknown;
+        }>`
+          select p.id as product_id, p.sku, p.name, p.unit, p.min_stock,
+                 coalesce(s.stock, 0) as stock,
+                 count(*) over() as n_low
+          from products p
+          left join (
+            select product_id, sum(qty) as stock from stock_moves group by product_id
+          ) s on s.product_id = p.id
+          where coalesce(s.stock, 0) <= p.min_stock
+          order by (coalesce(s.stock, 0) / nullif(p.min_stock, 0)) asc nulls first, p.name
+          limit 8
+        `,
+        sql<{ date: string; amount: unknown }>`
+          select d.doc_date::text as date, coalesce(sum(l.amount), 0) as amount
+          from documents d
+          join document_lines l on l.document_id = d.id
+          where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
+          group by d.doc_date
+          order by d.doc_date
+        `,
+        sql.query<Record<string, unknown>>(
+          `select ${DOC_SELECT}
+           from documents d
+           left join warehouses w on w.id = d.warehouse_id
+           left join warehouses wf on wf.id = d.from_warehouse_id
+           left join warehouses wt on wt.id = d.to_warehouse_id
+           left join counterparties c on c.id = d.counterparty_id
+           order by d.doc_date desc, d.id desc
+           limit 8`,
+        ),
+        sql<{
+          id: number;
+          name: string;
+          city: string;
+          value: unknown;
+        }>`
+          select w.id, w.name, w.city,
+            coalesce(sum(m.qty * p.purchase_price), 0) as value
+          from warehouses w
+          left join stock_moves m on m.warehouse_id = w.id
+          left join products p on p.id = m.product_id
+          group by w.id, w.name, w.city
+          order by w.id
+        `,
+        sql<{
+          product_id: number;
+          name: string;
+          qty: unknown;
+          amount: unknown;
+        }>`
+          select p.id as product_id, p.name,
+                 sum(l.qty) as qty, sum(l.amount) as amount
+          from documents d
+          join document_lines l on l.document_id = d.id
+          join products p on p.id = l.product_id
+          where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
+          group by p.id, p.name
+          order by sum(l.amount) desc
+          limit 5
+        `,
+      ]);
+
     const revenue = num(revenueRows[0]?.revenue);
     const cogs = num(revenueRows[0]?.cogs);
     const docsPosted = num(revenueRows[0]?.docs);
     const margin = revenue - cogs;
-
-    const stockRows = await sql<{ value: unknown }>`
-      select coalesce(sum(x.qty * p.purchase_price), 0) as value
-      from (
-        select product_id, sum(qty) as qty from stock_moves group by product_id
-      ) x
-      join products p on p.id = x.product_id
-    `;
-
-    const orders = await sql<{ n: unknown; amount: unknown }>`
-      select count(*) as n,
-        coalesce(sum((select sum(amount) from document_lines l where l.document_id = d.id)), 0) as amount
-      from documents d
-      where d.type = 'order' and d.status = 'draft'
-    `;
-
-    const low = await sql<{
-      product_id: number;
-      sku: string;
-      name: string;
-      unit: string;
-      min_stock: unknown;
-      stock: unknown;
-    }>`
-      select p.id as product_id, p.sku, p.name, p.unit, p.min_stock,
-             coalesce(s.stock, 0) as stock
-      from products p
-      left join (
-        select product_id, sum(qty) as stock from stock_moves group by product_id
-      ) s on s.product_id = p.id
-      where coalesce(s.stock, 0) <= p.min_stock
-      order by (coalesce(s.stock, 0) / nullif(p.min_stock, 0)) asc nulls first, p.name
-      limit 8
-    `;
-
-    const byDay = await sql<{ date: string; amount: unknown }>`
-      select d.doc_date::text as date, coalesce(sum(l.amount), 0) as amount
-      from documents d
-      join document_lines l on l.document_id = d.id
-      where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
-      group by d.doc_date
-      order by d.doc_date
-    `;
-
-    const recent = await sql.query<Record<string, unknown>>(
-      `select ${DOC_SELECT}
-       from documents d
-       left join warehouses w on w.id = d.warehouse_id
-       left join warehouses wf on wf.id = d.from_warehouse_id
-       left join warehouses wt on wt.id = d.to_warehouse_id
-       left join counterparties c on c.id = d.counterparty_id
-       order by d.doc_date desc, d.id desc
-       limit 8`,
-    );
-
-    const warehouseValues = await sql<{
-      id: number;
-      name: string;
-      city: string;
-      value: unknown;
-    }>`
-      select w.id, w.name, w.city,
-        coalesce(sum(m.qty * p.purchase_price), 0) as value
-      from warehouses w
-      left join stock_moves m on m.warehouse_id = w.id
-      left join products p on p.id = m.product_id
-      group by w.id, w.name, w.city
-      order by w.id
-    `;
-
-    const top = await sql<{
-      product_id: number;
-      name: string;
-      qty: unknown;
-      amount: unknown;
-    }>`
-      select p.id as product_id, p.name,
-             sum(l.qty) as qty, sum(l.amount) as amount
-      from documents d
-      join document_lines l on l.document_id = d.id
-      join products p on p.id = l.product_id
-      where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
-      group by p.id, p.name
-      order by sum(l.amount) desc
-      limit 5
-    `;
-
-    const lowStockCountRows = await sql<{ n: unknown }>`
-      select count(*) as n from (
-        select p.id
-        from products p
-        left join (
-          select product_id, sum(qty) as stock from stock_moves group by product_id
-        ) s on s.product_id = p.id
-        where coalesce(s.stock, 0) <= p.min_stock
-      ) t
-    `;
 
     return {
       periodLabel: label,
@@ -883,7 +873,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       stockValue: num(stockRows[0]?.value),
       openOrders: num(orders[0]?.n),
       openOrdersAmount: num(orders[0]?.amount),
-      lowStockCount: num(lowStockCountRows[0]?.n),
+      lowStockCount: num(low[0]?.n_low),
       docsPosted,
       salesByDay: byDay.map((r) => ({
         date: String(r.date).slice(0, 10),
@@ -919,7 +909,8 @@ export const getReports = createServerFn({ method: "GET" })
     const sql = await withDb();
     const { from, label } = periodSql(data.period);
 
-    const byProduct = await sql<Record<string, unknown>>`
+    const [byProduct, byPartner, stockValue] = await Promise.all([
+      sql<Record<string, unknown>>`
       select p.id as product_id, p.sku, p.name,
         coalesce(sum(l.qty), 0) as qty,
         coalesce(sum(l.amount), 0) as revenue,
@@ -930,9 +921,8 @@ export const getReports = createServerFn({ method: "GET" })
       where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
       group by p.id, p.sku, p.name
       order by sum(l.amount) desc
-    `;
-
-    const byPartner = await sql<Record<string, unknown>>`
+    `,
+      sql<Record<string, unknown>>`
       select c.id as partner_id, c.name, c.city,
         count(distinct d.id) as docs,
         coalesce(sum(l.amount), 0) as revenue
@@ -942,9 +932,8 @@ export const getReports = createServerFn({ method: "GET" })
       where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
       group by c.id, c.name, c.city
       order by sum(l.amount) desc
-    `;
-
-    const stockValue = await sql<Record<string, unknown>>`
+    `,
+      sql<Record<string, unknown>>`
       select p.category,
         coalesce(sum(x.qty * p.purchase_price), 0) as value,
         coalesce(sum(x.qty), 0) as qty
@@ -954,7 +943,8 @@ export const getReports = createServerFn({ method: "GET" })
       join products p on p.id = x.product_id
       group by p.category
       order by sum(x.qty * p.purchase_price) desc
-    `;
+    `,
+    ]);
 
     return {
       periodLabel: label,

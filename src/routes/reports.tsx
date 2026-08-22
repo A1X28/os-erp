@@ -2,20 +2,27 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { getReports } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { money, pct, qtyFmt } from "@/lib/erp/format";
 import { PERIOD_LABEL } from "@/lib/erp/labels";
 import type { PeriodKey } from "@/lib/erp/types";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/reports")({ component: ReportsPage });
+export const Route = createFileRoute("/reports")({
+  loader: () => orGuest(getReports({ data: { period: "month" } }), null),
+  component: ReportsPage,
+});
 
 const PERIODS: PeriodKey[] = ["month", "30d", "quarter"];
 
 function ReportsPage() {
+  const initial = Route.useLoaderData();
   const [period, setPeriod] = useState<PeriodKey>("month");
   const q = useQuery({
     queryKey: ["reports", period],
     queryFn: () => getReports({ data: { period } }),
+    initialData: period === "month" && initial ? initial : undefined,
+    initialDataUpdatedAt: period === "month" && initial ? Date.now() : undefined,
   });
   const data = q.data;
 

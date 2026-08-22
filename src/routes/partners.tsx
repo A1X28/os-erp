@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { listPartners, savePartner } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { KIND_LABEL } from "@/lib/erp/labels";
 import type { Partner, PartnerKind } from "@/lib/erp/types";
 import { Button } from "@/components/ui/button";
@@ -26,9 +27,13 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/partners")({ component: PartnersPage });
+export const Route = createFileRoute("/partners")({
+  loader: () => orGuest(listPartners({ data: { q: "", kind: "all" } }), []),
+  component: PartnersPage,
+});
 
 function PartnersPage() {
+  const initial = Route.useLoaderData();
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<"all" | PartnerKind>("all");
   const [editing, setEditing] = useState<Partner | null | "new">(null);
@@ -37,6 +42,8 @@ function PartnersPage() {
   const list = useQuery({
     queryKey: ["partners", q, kind],
     queryFn: () => listPartners({ data: { q, kind } }),
+    initialData: q === "" && kind === "all" ? initial : undefined,
+    initialDataUpdatedAt: q === "" && kind === "all" ? Date.now() : undefined,
   });
   const rows = list.data ?? [];
 

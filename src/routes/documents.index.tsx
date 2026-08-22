@@ -36,6 +36,8 @@ function DocumentsPage() {
     queryKey: ["documents", q, type, status],
     queryFn: () => listDocuments({ data: { q, type, status } }),
     initialData: q === "" && type === "all" && status === "all" ? initial : undefined,
+    initialDataUpdatedAt:
+      q === "" && type === "all" && status === "all" && initial ? Date.now() : undefined,
   });
 
   const rows = list.data ?? [];

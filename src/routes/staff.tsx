@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { createEmployee, listEmployees } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,9 +15,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export const Route = createFileRoute("/staff")({ component: StaffPage });
+export const Route = createFileRoute("/staff")({
+  loader: () => orGuest(listEmployees(), []),
+  component: StaffPage,
+});
 
 function StaffPage() {
+  const initial = Route.useLoaderData();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -26,6 +31,8 @@ function StaffPage() {
   const list = useQuery({
     queryKey: ["staff"],
     queryFn: () => listEmployees(),
+    initialData: initial,
+    initialDataUpdatedAt: Date.now(),
   });
   const rows = list.data ?? [];
 

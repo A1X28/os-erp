@@ -175,6 +175,11 @@ export default defineConfig(({ command, isPreview }) => ({
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
             serverDir: "./server",
+            // Production talks to Neon — don't ship the WASM Postgres fallback
+            // into the serverless function (it dominated cold-start size).
+            ...(process.env.VERCEL
+              ? { rollupConfig: { external: ["@electric-sql/pglite"] } }
+              : {}),
           }),
         ]
       : []),

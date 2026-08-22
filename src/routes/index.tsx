@@ -34,6 +34,7 @@ function Dashboard() {
     queryKey: ["dashboard", period],
     queryFn: () => getDashboard({ data: { period } }),
     initialData: period === "month" && initial ? initial : undefined,
+    initialDataUpdatedAt: period === "month" && initial ? Date.now() : undefined,
   });
 
   const data = q.data;

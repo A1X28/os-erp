@@ -3,13 +3,24 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { listStock, listWarehouses } from "@/lib/erp/server";
+import { orGuest } from "@/lib/erp/safe";
 import { money, qtyFmt } from "@/lib/erp/format";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/stock")({ component: StockPage });
+export const Route = createFileRoute("/stock")({
+  loader: async () => {
+    const [warehouses, stock] = await Promise.all([
+      orGuest(listWarehouses(), []),
+      orGuest(listStock({ data: {} }), []),
+    ]);
+    return { warehouses, stock };
+  },
+  component: StockPage,
+});
 
 function StockPage() {
+  const initial = Route.useLoaderData();
   const [q, setQ] = useState("");
   const [warehouseId, setWarehouseId] = useState<number | "all">("all");
   const [lowOnly, setLowOnly] = useState(false);
@@ -17,6 +28,8 @@ function StockPage() {
   const warehouses = useQuery({
     queryKey: ["warehouses"],
     queryFn: () => listWarehouses(),
+    initialData: initial.warehouses,
+    initialDataUpdatedAt: Date.now(),
   });
   const stock = useQuery({
     queryKey: ["stock", warehouseId, q, lowOnly],
@@ -28,6 +41,9 @@ function StockPage() {
           lowOnly,
         },
       }),
+    initialData: warehouseId === "all" && !q && !lowOnly ? initial.stock : undefined,
+    initialDataUpdatedAt:
+      warehouseId === "all" && !q && !lowOnly ? Date.now() : undefined,
   });
 
   const rows = stock.data ?? [];

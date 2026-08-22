@@ -30,6 +30,7 @@ function CatalogPage() {
         data: { q, category: category === "all" ? undefined : category },
       }),
     initialData: q === "" && category === "all" ? initial : undefined,
+    initialDataUpdatedAt: q === "" && category === "all" && initial ? Date.now() : undefined,
   });
 
   const rows = list.data ?? [];
