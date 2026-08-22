@@ -40,8 +40,9 @@ import type {
   PeriodBoard,
   CompanyProfile,
   TaxEstimate,
+  Currency,
 } from "./types";
-import { DOC_TYPES, DEFAULT_COMPANY } from "./types";
+import { DOC_TYPES, DEFAULT_COMPANY, CURRENCIES } from "./types";
 
 function periodSql(period: PeriodKey): { from: string; label: string } {
   const now = new Date();
@@ -135,6 +136,8 @@ function mapPayment(r: Record<string, unknown>): Payment {
     amount: num(r.amount),
     method: String(r.method) as PayMethod,
     comment: String(r.comment ?? ""),
+    currency: (String(r.currency ?? "RUB") as Currency),
+    fxRate: num(r.fx_rate ?? 1) || 1,
   };
 }
 
@@ -148,12 +151,15 @@ function mapDocSummary(r: Record<string, unknown>): DocumentSummary {
     warehouseName: r.warehouse_name == null ? null : String(r.warehouse_name),
     partnerName: r.partner_name == null ? null : String(r.partner_name),
     amount: num(r.amount),
+    currency: (String(r.currency ?? "RUB") as Currency),
+    fxRate: num(r.fx_rate ?? 1) || 1,
     linesCount: num(r.lines_count),
   };
 }
 
 const DOC_SELECT = `
   d.id, d.type, d.number, d.doc_date, d.status,
+  d.currency, d.fx_rate,
   coalesce(w.name, wf.name, wt.name) as warehouse_name,
   c.name as partner_name,
   coalesce((select sum(l.amount) from document_lines l where l.document_id = d.id), 0) as amount,
@@ -665,7 +671,8 @@ export const getDocument = createServerFn({ method: "GET" })
     const sourceId = d.source_id == null ? null : num(d.source_id);
     const payRows = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
-             p.amount, p.method, p.comment, c.name as partner_name,
+             p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             c.name as partner_name,
              d.number as document_number, d.type as document_type
       from payments p
       join counterparties c on c.id = p.partner_id
@@ -728,6 +735,8 @@ export const getDocument = createServerFn({ method: "GET" })
       postedAt: d.posted_at == null ? null : String(d.posted_at),
       sourceId,
       sourceNumber: d.source_number == null ? null : String(d.source_number),
+      currency: (String(d.currency ?? "RUB") as Currency),
+      fxRate: num(d.fx_rate ?? 1) || 1,
       paidAmount,
       dueAmount: Math.max(0, amount - paidAmount),
       payments,
@@ -757,6 +766,8 @@ const documentInput = z.object({
   toWarehouseId: z.number().nullable().optional(),
   counterpartyId: z.number().nullable().optional(),
   comment: z.string().optional(),
+  currency: z.enum(CURRENCIES).optional(),
+  fxRate: z.number().positive().optional(),
   lines: z.array(lineInput).min(1),
 });
 
@@ -802,7 +813,9 @@ export const saveDocument = createServerFn({ method: "POST" })
           from_warehouse_id = ${data.fromWarehouseId ?? null},
           to_warehouse_id = ${data.toWarehouseId ?? null},
           counterparty_id = ${data.counterpartyId ?? null},
-          comment = ${data.comment ?? ""}
+          comment = ${data.comment ?? ""},
+          currency = ${data.currency ?? "RUB"},
+          fx_rate = ${data.fxRate ?? 1}
         where id = ${id}
       `;
       await sql`delete from document_lines where document_id = ${id}`;
@@ -812,12 +825,12 @@ export const saveDocument = createServerFn({ method: "POST" })
         insert into documents (
           type, number, doc_date, status,
           warehouse_id, from_warehouse_id, to_warehouse_id,
-          counterparty_id, comment
+          counterparty_id, comment, currency, fx_rate
         ) values (
           ${data.type}, ${number}, ${data.docDate}, 'draft',
           ${data.warehouseId ?? null}, ${data.fromWarehouseId ?? null},
           ${data.toWarehouseId ?? null}, ${data.counterpartyId ?? null},
-          ${data.comment ?? ""}
+          ${data.comment ?? ""}, ${data.currency ?? "RUB"}, ${data.fxRate ?? 1}
         )
         returning id
       `;
@@ -1073,7 +1086,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       await Promise.all([
         sql<{ revenue: unknown; cogs: unknown; docs: unknown }>`
           select
-            coalesce(sum(l.amount), 0) as revenue,
+            coalesce(sum(l.amount * d.fx_rate), 0) as revenue,
             coalesce((
               select sum(abs(m.qty) * m.cost)
               from stock_moves m
@@ -1093,7 +1106,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         `,
         sql<{ n: unknown; amount: unknown }>`
           select count(*) as n,
-            coalesce(sum((select sum(amount) from document_lines l where l.document_id = d.id)), 0) as amount
+            coalesce(sum((select sum(l.amount * d.fx_rate) from document_lines l where l.document_id = d.id)), 0) as amount
           from documents d
           where d.type = 'order' and d.status = 'draft'
         `,
@@ -1118,7 +1131,7 @@ export const getDashboard = createServerFn({ method: "GET" })
           limit 8
         `,
         sql<{ date: string; amount: unknown }>`
-          select d.doc_date::text as date, coalesce(sum(l.amount), 0) as amount
+          select d.doc_date::text as date, coalesce(sum(l.amount * d.fx_rate), 0) as amount
           from documents d
           join document_lines l on l.document_id = d.id
           where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
@@ -1155,30 +1168,30 @@ export const getDashboard = createServerFn({ method: "GET" })
           amount: unknown;
         }>`
           select p.id as product_id, p.name,
-                 sum(l.qty) as qty, sum(l.amount) as amount
+                 sum(l.qty) as qty, sum(l.amount * d.fx_rate) as amount
           from documents d
           join document_lines l on l.document_id = d.id
           join products p on p.id = l.product_id
           where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
           group by p.id, p.name
-          order by sum(l.amount) desc
+          order by sum(l.amount * d.fx_rate) desc
           limit 5
         `,
       ]);
 
     const [incomingRows, outgoingRows, receivableRows, payableRows] = await Promise.all([
       sql<{ n: unknown }>`
-        select coalesce(sum(amount), 0) as n
+        select coalesce(sum(amount * fx_rate), 0) as n
         from payments
         where kind = 'in' and pay_date >= ${from}
       `,
       sql<{ n: unknown }>`
-        select coalesce(sum(amount), 0) as n
+        select coalesce(sum(amount * fx_rate), 0) as n
         from payments
         where kind = 'out' and pay_date >= ${from}
       `,
       sql<{ n: unknown }>`
-        select coalesce(sum(greatest(doc_amt - paid, 0)), 0) as n
+        select coalesce(sum(greatest(doc_amt - paid, 0) * fx), 0) as n
         from (
           select
             coalesce((select sum(l.amount) from document_lines l where l.document_id = d.id), 0) as doc_amt,
@@ -1187,7 +1200,8 @@ export const getDashboard = createServerFn({ method: "GET" })
               where p.document_id = d.id
                  or p.document_id = d.source_id
                  or p.document_id in (select s.id from documents s where s.source_id = d.id)
-            ), 0) as paid
+            ), 0) as paid,
+            d.fx_rate as fx
           from documents d
           where (d.type = 'sale' and d.status = 'posted')
              or (d.type = 'order' and not exists (
@@ -1196,11 +1210,12 @@ export const getDashboard = createServerFn({ method: "GET" })
         ) t
       `,
       sql<{ n: unknown }>`
-        select coalesce(sum(greatest(doc_amt - paid, 0)), 0) as n
+        select coalesce(sum(greatest(doc_amt - paid, 0) * fx), 0) as n
         from (
           select
             coalesce((select sum(l.amount) from document_lines l where l.document_id = d.id), 0) as doc_amt,
-            coalesce((select sum(p.amount) from payments p where p.document_id = d.id), 0) as paid
+            coalesce((select sum(p.amount) from payments p where p.document_id = d.id), 0) as paid,
+            d.fx_rate as fx
           from documents d
           where d.type = 'purchase' and d.status = 'posted'
         ) t
@@ -1265,7 +1280,7 @@ export const getReports = createServerFn({ method: "GET" })
       sql<Record<string, unknown>>`
       select p.id as product_id, p.sku, p.name,
         coalesce(sum(l.qty), 0) as qty,
-        coalesce(sum(l.amount), 0) as revenue,
+        coalesce(sum(l.amount * d.fx_rate), 0) as revenue,
         coalesce((
           select sum(abs(m.qty) * m.cost)
           from stock_moves m
@@ -1278,18 +1293,18 @@ export const getReports = createServerFn({ method: "GET" })
       join products p on p.id = l.product_id
       where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
       group by p.id, p.sku, p.name
-      order by sum(l.amount) desc
+      order by sum(l.amount * d.fx_rate) desc
     `,
       sql<Record<string, unknown>>`
       select c.id as partner_id, c.name, c.city,
         count(distinct d.id) as docs,
-        coalesce(sum(l.amount), 0) as revenue
+        coalesce(sum(l.amount * d.fx_rate), 0) as revenue
       from documents d
       join counterparties c on c.id = d.counterparty_id
       join document_lines l on l.document_id = d.id
       where d.type = 'sale' and d.status = 'posted' and d.doc_date >= ${from}
       group by c.id, c.name, c.city
-      order by sum(l.amount) desc
+      order by sum(l.amount * d.fx_rate) desc
     `,
       sql<Record<string, unknown>>`
       select p.category,
@@ -1433,7 +1448,8 @@ export const listPayments = createServerFn({ method: "GET" })
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const rows = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
-             p.amount, p.method, p.comment, c.name as partner_name,
+             p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             c.name as partner_name,
              d.number as document_number, d.type as document_type
       from payments p
       join counterparties c on c.id = p.partner_id
@@ -1463,6 +1479,8 @@ export const savePayment = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }): Promise<Payment> => {
     return withTx(async (sql) => {
+    let currency: Currency = "RUB";
+    let fxRate = 1;
     if (data.documentId) {
       const docs = await lockDocument(sql, data.documentId);
       if (!docs) throw new Error("Документ не найден");
@@ -1479,19 +1497,23 @@ export const savePayment = createServerFn({ method: "POST" })
       if (data.kind === "out" && !["po", "bill", "purchase", "sale_return"].includes(dtype)) {
         throw new Error("Исходящие деньги только к закупке или возврату покупателю");
       }
+      currency = String(docs.currency ?? "RUB") as Currency;
+      fxRate = num(docs.fx_rate ?? 1) || 1;
     }
     const number = await nextPaymentNumber(sql, data.kind);
     const rows = await sql<Record<string, unknown>>`
-      insert into payments (kind, number, pay_date, partner_id, document_id, amount, method, comment)
+      insert into payments (kind, number, pay_date, partner_id, document_id, amount, method, comment, currency, fx_rate)
       values (
         ${data.kind}, ${number}, ${data.payDate}, ${data.partnerId},
-        ${data.documentId ?? null}, ${data.amount}, ${data.method}, ${data.comment ?? ""}
+        ${data.documentId ?? null}, ${data.amount}, ${data.method}, ${data.comment ?? ""},
+        ${currency}, ${fxRate}
       )
       returning id
     `;
     const created = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
-             p.amount, p.method, p.comment, c.name as partner_name,
+             p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             c.name as partner_name,
              d.number as document_number, d.type as document_type
       from payments p
       join counterparties c on c.id = p.partner_id
@@ -1555,12 +1577,13 @@ export const followOn = createServerFn({ method: "POST" })
     const inserted = await sql<{ id: number }>`
       insert into documents (
         type, number, doc_date, status,
-        warehouse_id, counterparty_id, comment, source_id
+        warehouse_id, counterparty_id, comment, source_id, currency, fx_rate
       ) values (
         ${toType}, ${number}, ${todayIso()}, 'draft',
         ${src.warehouse_id == null ? null : num(src.warehouse_id)},
         ${src.counterparty_id == null ? null : num(src.counterparty_id)},
-        ${`Из ${String(src.number)}`}, ${data.id}
+        ${`Из ${String(src.number)}`}, ${data.id},
+        ${String(src.currency ?? "RUB")}, ${num(src.fx_rate ?? 1) || 1}
       )
       returning id
     `;
@@ -1871,6 +1894,7 @@ function mapCompany(r: Record<string, unknown> | undefined): CompanyProfile {
     taxRate: num(r.tax_rate ?? 6),
     taxExtraRate: num(r.tax_extra_rate ?? 1),
     taxThreshold: num(r.tax_threshold ?? 300000),
+    baseCurrency: (String(r.base_currency ?? "RUB") as Currency),
   };
 }
 
@@ -1880,7 +1904,7 @@ export const getCompany = createServerFn({ method: "GET" })
     const sql = await withDb();
     const rows = await sql<Record<string, unknown>>`
       select name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,
-             tax_rate, tax_extra_rate, tax_threshold
+             tax_rate, tax_extra_rate, tax_threshold, base_currency
       from company_profile where id = 1
     `;
     return mapCompany(rows[0]);
@@ -1902,6 +1926,7 @@ export const saveCompany = createServerFn({ method: "POST" })
       taxRate: z.number().min(0).max(100),
       taxExtraRate: z.number().min(0).max(100),
       taxThreshold: z.number().min(0),
+      baseCurrency: z.enum(CURRENCIES),
     }),
   )
   .handler(async ({ data, context }): Promise<CompanyProfile> => {
@@ -1910,12 +1935,13 @@ export const saveCompany = createServerFn({ method: "POST" })
       const rows = await sql<Record<string, unknown>>`
         insert into company_profile (
           id, name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,
-          tax_rate, tax_extra_rate, tax_threshold
+          tax_rate, tax_extra_rate, tax_threshold, base_currency
         ) values (
           1, ${data.name.trim()}, ${data.bin.trim()}, ${data.address.trim()},
           ${data.phone.trim()}, ${data.bank.trim()}, ${data.iik.trim()},
           ${data.bik.trim()}, ${data.vatEnabled}, ${data.vatRate},
-          ${data.taxRate}, ${data.taxExtraRate}, ${data.taxThreshold}
+          ${data.taxRate}, ${data.taxExtraRate}, ${data.taxThreshold},
+          ${data.baseCurrency}
         )
         on conflict (id) do update set
           name = excluded.name,
@@ -1929,9 +1955,10 @@ export const saveCompany = createServerFn({ method: "POST" })
           vat_rate = excluded.vat_rate,
           tax_rate = excluded.tax_rate,
           tax_extra_rate = excluded.tax_extra_rate,
-          tax_threshold = excluded.tax_threshold
+          tax_threshold = excluded.tax_threshold,
+          base_currency = excluded.base_currency
         returning name, bin, address, phone, bank, iik, bik, vat_enabled, vat_rate,
-                  tax_rate, tax_extra_rate, tax_threshold
+                  tax_rate, tax_extra_rate, tax_threshold, base_currency
       `;
       return mapCompany(rows[0]);
     }, context.userId);
@@ -1951,12 +1978,12 @@ export const getTaxEstimate = createServerFn({ method: "GET" })
         from company_profile where id = 1
       `,
       sql<{ amount: unknown }>`
-        select coalesce(sum(amount), 0) as amount
+        select coalesce(sum(amount * fx_rate), 0) as amount
         from payments
         where kind = 'in' and pay_date >= ${from} and pay_date <= ${to}
       `,
       sql<{ amount: unknown }>`
-        select coalesce(sum(l.amount), 0) as amount
+        select coalesce(sum(l.amount * d.fx_rate), 0) as amount
         from documents d
         join document_lines l on l.document_id = d.id
         where d.type = 'sale' and d.status = 'posted'

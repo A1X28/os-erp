@@ -31,9 +31,9 @@ import {
   unpostDocument,
 } from "@/lib/erp/server";
 import { DOC_TYPE_LABEL, FOLLOW_LABEL, FOLLOW_TO, BUYER_DOC, SUPPLIER_DOC } from "@/lib/erp/labels";
-import { formatDate, money, num, qtyFmt, todayIso, vatIncluded } from "@/lib/erp/format";
-import type { DocType, DocumentDetail, Product } from "@/lib/erp/types";
-import { DEFAULT_COMPANY } from "@/lib/erp/types";
+import { formatDate, money, num, qtyFmt, todayIso, vatIncluded, CURRENCY_LABEL, CURRENCY_SYMBOL } from "@/lib/erp/format";
+import type { Currency, DocType, DocumentDetail, Product } from "@/lib/erp/types";
+import { CURRENCIES, DEFAULT_COMPANY } from "@/lib/erp/types";
 import { cn } from "@/lib/utils";
 
 type DraftLine = {
@@ -163,6 +163,8 @@ export function DocumentForm({
     initial?.counterpartyId ? String(initial.counterpartyId) : "",
   );
   const [comment, setComment] = useState(initial?.comment ?? "");
+  const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "RUB");
+  const [fxRate, setFxRate] = useState(String(initial?.fxRate ?? 1));
   const [lines, setLines] = useState<DraftLine[]>(
     () =>
       initial?.lines.map((l) => ({
@@ -240,6 +242,8 @@ export function DocumentForm({
             type === "transfer" ? Number(toWarehouseId) || null : null,
           counterpartyId: counterpartyId ? Number(counterpartyId) : null,
           comment,
+          currency,
+          fxRate: currency === (profile.baseCurrency ?? "RUB") ? 1 : Number(fxRate) || 1,
           lines: lines.map((l) => ({
             productId: l.productId,
             qty: l.qty,
@@ -430,6 +434,40 @@ export function DocumentForm({
               disabled={locked}
             />
           </div>
+          <div className="grid gap-1.5">
+            <Label>Валюта</Label>
+            <Select
+              value={currency}
+              onValueChange={(v) => {
+                const next = v as Currency;
+                setCurrency(next);
+                if (next === (profile.baseCurrency ?? "RUB")) setFxRate("1");
+              }}
+              disabled={locked}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {CURRENCY_SYMBOL[c]} {CURRENCY_LABEL[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {currency !== (profile.baseCurrency ?? "RUB") ? (
+            <div className="grid gap-1.5">
+              <Label>Курс к {CURRENCY_SYMBOL[profile.baseCurrency ?? "RUB"]}</Label>
+              <Input
+                inputMode="decimal"
+                value={fxRate}
+                onChange={(e) => setFxRate(e.target.value)}
+                disabled={locked}
+              />
+            </div>
+          ) : null}
           {type === "transfer" ? (
             <>
               <div className="grid gap-1.5">
@@ -615,7 +653,7 @@ export function DocumentForm({
                     />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {money(line.qty * line.price)}
+                    {money(line.qty * line.price, { currency })}
                   </td>
                   <td className="px-2 py-2">
                     {!locked ? (
@@ -696,7 +734,7 @@ export function DocumentForm({
                 />
               </div>
               <p className="text-right text-sm tabular-nums">
-                {money(line.qty * line.price)}
+                {money(line.qty * line.price, { currency })}
               </p>
             </li>
           ))}
@@ -739,18 +777,24 @@ export function DocumentForm({
             {profile.vatEnabled ? (
               <>
                 <p className="text-xs text-muted-foreground">в т.ч. НДС {profile.vatRate}%</p>
-                <p className="text-sm tabular-nums text-muted-foreground">{money(vat)}</p>
+                <p className="text-sm tabular-nums text-muted-foreground">{money(vat, { currency })}</p>
               </>
             ) : (
               <p className="text-xs text-muted-foreground">Без НДС</p>
             )}
             <p className="mt-1 font-display text-2xl tabular-nums tracking-tight">
-              {money(amount)}
+              {money(amount, { currency })}
             </p>
+            {currency !== (profile.baseCurrency ?? "RUB") ? (
+              <p className="text-xs text-muted-foreground">
+                ≈ {money(amount * (Number(fxRate) || 1), { currency: profile.baseCurrency ?? "RUB" })}{" "}
+                по курсу {fxRate}
+              </p>
+            ) : null}
             {initial && moneyTypes.includes(type) ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Оплачено {money(initial.paidAmount)}
-                {initial.dueAmount > 0 ? ` · долг ${money(initial.dueAmount)}` : " · закрыто"}
+                Оплачено {money(initial.paidAmount, { currency })}
+                {initial.dueAmount > 0 ? ` · долг ${money(initial.dueAmount, { currency })}` : " · закрыто"}
               </p>
             ) : null}
           </div>
@@ -863,7 +907,7 @@ export function DocumentForm({
                     {p.payDate} · {p.method}
                   </span>
                 </span>
-                <span className="tabular-nums font-medium">{money(p.amount)}</span>
+                <span className="tabular-nums font-medium">{money(p.amount, { currency: p.currency })}</span>
               </li>
             ))}
           </ul>

@@ -133,7 +133,7 @@ function DocumentsPage() {
                   </span>
                 </span>
                 <span className="text-sm tabular-nums sm:text-right">
-                  {money(d.amount)}
+                  {money(d.amount, { currency: d.currency })}
                   <span className="block text-xs text-muted-foreground">
                     {d.linesCount} стр.
                   </span>

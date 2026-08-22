@@ -1,5 +1,5 @@
 import { PRINT_TITLE, BUYER_DOC, SUPPLIER_DOC } from "@/lib/erp/labels";
-import { amountInWords, formatDate, money, qtyFmt, vatIncluded } from "@/lib/erp/format";
+import { amountInWords, formatDate, money, qtyFmt, vatIncluded, CURRENCY_SYMBOL } from "@/lib/erp/format";
 import type { CompanyProfile, DocType, DocumentDetail } from "@/lib/erp/types";
 import { DEFAULT_COMPANY } from "@/lib/erp/types";
 
@@ -40,6 +40,7 @@ export function DocumentPrint({
   const title = PRINT_TITLE[doc.type];
   const ours = company;
   const vat = ours.vatEnabled ? vatIncluded(doc.amount, ours.vatRate) : 0;
+  const cur = doc.currency;
   const toBuyer = BUYER_DOC.includes(doc.type);
   const fromSupplier = SUPPLIER_DOC.includes(doc.type);
   const seller = toBuyer
@@ -76,6 +77,11 @@ export function DocumentPrint({
           {title} № {doc.number}
         </h1>
         <p className="mt-1 text-sm">от {formatDate(doc.docDate)}</p>
+        {cur !== ours.baseCurrency ? (
+          <p className="mt-1 text-xs text-neutral-500">
+            Валюта {CURRENCY_SYMBOL[cur]} · курс {doc.fxRate} {CURRENCY_SYMBOL[ours.baseCurrency]}
+          </p>
+        ) : null}
       </header>
 
       <dl className="mt-4 grid gap-2 text-sm">
@@ -139,8 +145,8 @@ export function DocumentPrint({
               </td>
               <td className="py-1.5">{line.unit}</td>
               <td className="py-1.5 text-right tabular-nums">{qtyFmt(line.qty)}</td>
-              <td className="py-1.5 text-right tabular-nums">{money(line.price)}</td>
-              <td className="py-1.5 text-right tabular-nums">{money(line.amount)}</td>
+              <td className="py-1.5 text-right tabular-nums">{money(line.price, { currency: cur })}</td>
+              <td className="py-1.5 text-right tabular-nums">{money(line.amount, { currency: cur })}</td>
             </tr>
           ))}
         </tbody>
@@ -152,7 +158,7 @@ export function DocumentPrint({
             {ours.vatEnabled ? (
               <tr>
                 <td className="pr-6 text-neutral-500">В т.ч. НДС {ours.vatRate}%</td>
-                <td className="text-right tabular-nums">{money(vat)}</td>
+                <td className="text-right tabular-nums">{money(vat, { currency: cur })}</td>
               </tr>
             ) : (
               <tr>
@@ -163,13 +169,13 @@ export function DocumentPrint({
             <tr>
               <td className="pr-6 pt-1 font-medium">Итого</td>
               <td className="pt-1 text-right text-base font-semibold tabular-nums">
-                {money(doc.amount)}
+                {money(doc.amount, { currency: cur })}
               </td>
             </tr>
             {BILL.includes(doc.type) && doc.dueAmount > 0 ? (
               <tr>
                 <td className="pr-6 pt-1 text-neutral-500">К оплате</td>
-                <td className="pt-1 text-right tabular-nums">{money(doc.dueAmount)}</td>
+                <td className="pt-1 text-right tabular-nums">{money(doc.dueAmount, { currency: cur })}</td>
               </tr>
             ) : null}
           </tbody>
@@ -178,7 +184,7 @@ export function DocumentPrint({
 
       <p className="mt-3 text-sm">
         <span className="text-neutral-500">Сумма прописью: </span>
-        {amountInWords(doc.amount)}
+        {amountInWords(doc.amount, cur)}
       </p>
 
       {doc.comment ? (

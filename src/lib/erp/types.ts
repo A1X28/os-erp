@@ -17,6 +17,12 @@ export type PartnerKind = "buyer" | "supplier" | "both";
 export type PeriodKey = "month" | "30d" | "quarter";
 export type PayKind = "in" | "out";
 export type PayMethod = "cash" | "bank" | "kaspi";
+export const CURRENCIES = ["RUB", "EUR", "USD", "KZT"] as const;
+export type Currency = (typeof CURRENCIES)[number];
+
+export function isCurrency(v: unknown): v is Currency {
+  return typeof v === "string" && (CURRENCIES as readonly string[]).includes(v);
+}
 
 export function isDocType(v: unknown): v is DocType {
   return typeof v === "string" && (DOC_TYPES as readonly string[]).includes(v);
@@ -86,6 +92,8 @@ export type Payment = {
   amount: number;
   method: PayMethod;
   comment: string;
+  currency: Currency;
+  fxRate: number;
 };
 
 export type DocumentLine = {
@@ -117,6 +125,8 @@ export type DocumentSummary = {
   warehouseName: string | null;
   partnerName: string | null;
   amount: number;
+  currency: Currency;
+  fxRate: number;
   linesCount: number;
 };
 
@@ -141,6 +151,8 @@ export type DocumentDetail = {
   postedAt: string | null;
   sourceId: number | null;
   sourceNumber: string | null;
+  currency: Currency;
+  fxRate: number;
   paidAmount: number;
   dueAmount: number;
   payments: Payment[];
@@ -266,6 +278,7 @@ export type CompanyProfile = {
   taxRate: number;
   taxExtraRate: number;
   taxThreshold: number;
+  baseCurrency: Currency;
 };
 
 export const DEFAULT_COMPANY: CompanyProfile = {
@@ -281,6 +294,7 @@ export const DEFAULT_COMPANY: CompanyProfile = {
   taxRate: 6,
   taxExtraRate: 1,
   taxThreshold: 300000,
+  baseCurrency: "RUB",
 };
 
 export type TaxEstimate = {

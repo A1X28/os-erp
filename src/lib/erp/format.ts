@@ -1,3 +1,5 @@
+import type { Currency } from "./types";
+
 export function num(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "bigint") return Number(v);
@@ -8,12 +10,34 @@ export function num(v: unknown): number {
   return 0;
 }
 
-export function money(value: number, opts?: { digits?: number }): string {
+export const CURRENCY_SYMBOL: Record<Currency, string> = {
+  RUB: "₽",
+  EUR: "€",
+  USD: "$",
+  KZT: "₸",
+};
+
+export const CURRENCY_LABEL: Record<Currency, string> = {
+  RUB: "Рубль",
+  EUR: "Евро",
+  USD: "Доллар",
+  KZT: "Тенге",
+};
+
+export function money(
+  value: number,
+  opts?: { digits?: number; currency?: Currency },
+): string {
   const digits = opts?.digits ?? 0;
+  const symbol = CURRENCY_SYMBOL[opts?.currency ?? "RUB"];
   return `${new Intl.NumberFormat("ru-RU", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
-  }).format(value)} ₸`;
+  }).format(value)} ${symbol}`;
+}
+
+export function toBase(amount: number, fxRate: number): number {
+  return Math.round(amount * fxRate * 100) / 100;
 }
 
 export function qtyFmt(value: number): string {
@@ -124,16 +148,29 @@ function plural(n: number, one: string, few: string, many: string): string {
   return many;
 }
 
-export function amountInWords(value: number): string {
+export function amountInWords(value: number, currency: Currency = "RUB"): string {
   const n = Math.round(Math.abs(value) * 100);
-  const tenge = Math.floor(n / 100);
-  const tiyn = n % 100;
-  if (tenge === 0) {
-    return `Ноль тенге ${String(tiyn).padStart(2, "0")} тиын`;
+  const major = Math.floor(n / 100);
+  const minor = n % 100;
+  const majorNames: Record<Currency, [string, string, string]> = {
+    RUB: ["рубль", "рубля", "рублей"],
+    EUR: ["евро", "евро", "евро"],
+    USD: ["доллар", "доллара", "долларов"],
+    KZT: ["тенге", "тенге", "тенге"],
+  };
+  const minorNames: Record<Currency, [string, string, string]> = {
+    RUB: ["копейка", "копейки", "копеек"],
+    EUR: ["цент", "цента", "центов"],
+    USD: ["цент", "цента", "центов"],
+    KZT: ["тиын", "тиына", "тиынов"],
+  };
+  const femaleMajor = currency === "KZT";
+  if (major === 0) {
+    return `Ноль ${majorNames[currency][2]} ${String(minor).padStart(2, "0")} ${plural(minor, ...minorNames[currency])}`;
   }
-  const millions = Math.floor(tenge / 1_000_000);
-  const thousands = Math.floor((tenge % 1_000_000) / 1000);
-  const rest = tenge % 1000;
+  const millions = Math.floor(major / 1_000_000);
+  const thousands = Math.floor((major % 1_000_000) / 1000);
+  const rest = major % 1000;
   const parts: string[] = [];
   if (millions) {
     parts.push(
@@ -145,10 +182,10 @@ export function amountInWords(value: number): string {
       `${triad(thousands, true)} ${plural(thousands, "тысяча", "тысячи", "тысяч")}`,
     );
   }
-  if (rest) parts.push(triad(rest, false));
+  if (rest) parts.push(triad(rest, femaleMajor));
   const head = parts.join(" ").replace(/\s+/g, " ").trim();
   const titled = head.charAt(0).toUpperCase() + head.slice(1);
-  return `${titled} тенге ${String(tiyn).padStart(2, "0")} тиын`;
+  return `${titled} ${plural(major, ...majorNames[currency])} ${String(minor).padStart(2, "0")} ${plural(minor, ...minorNames[currency])}`;
 }
 
 export function pct(value: number): string {

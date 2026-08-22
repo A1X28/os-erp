@@ -4,10 +4,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { getCompany, saveCompany } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
-import { DEFAULT_COMPANY } from "@/lib/erp/types";
+import { CURRENCIES, DEFAULT_COMPANY } from "@/lib/erp/types";
+import type { Currency } from "@/lib/erp/types";
+import { CURRENCY_LABEL, CURRENCY_SYMBOL } from "@/lib/erp/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/company")({
   loader: () => orGuest(getCompany(), DEFAULT_COMPANY),
@@ -37,6 +46,7 @@ function CompanyPage() {
   const [taxRate, setTaxRate] = useState(String(data.taxRate));
   const [taxExtraRate, setTaxExtraRate] = useState(String(data.taxExtraRate));
   const [taxThreshold, setTaxThreshold] = useState(String(data.taxThreshold));
+  const [baseCurrency, setBaseCurrency] = useState<Currency>(data.baseCurrency);
 
   useEffect(() => {
     setName(data.name);
@@ -51,6 +61,7 @@ function CompanyPage() {
     setTaxRate(String(data.taxRate));
     setTaxExtraRate(String(data.taxExtraRate));
     setTaxThreshold(String(data.taxThreshold));
+    setBaseCurrency(data.baseCurrency);
   }, [data]);
 
   const save = useMutation({
@@ -85,6 +96,7 @@ function CompanyPage() {
           taxRate: tRate,
           taxExtraRate: tExtra,
           taxThreshold: tThr,
+          baseCurrency,
         },
       });
     },
@@ -118,6 +130,24 @@ function CompanyPage() {
           <div className="grid gap-1.5 sm:col-span-2">
             <Label htmlFor="co-name">Название</Label>
             <Input id="co-name" value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Валюта учёта</Label>
+            <Select value={baseCurrency} onValueChange={(v) => setBaseCurrency(v as Currency)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {CURRENCY_SYMBOL[c]} {CURRENCY_LABEL[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Отчёты, остатки и налог — в этой валюте. Закупку можно вести в евро.
+            </p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="co-bin">БИН / ИИН</Label>

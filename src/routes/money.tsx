@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { deletePayment, listPayments } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
-import { formatDate, money } from "@/lib/erp/format";
+import { formatDate, money, toBase } from "@/lib/erp/format";
 import { PAY_KIND_LABEL, PAY_METHOD_LABEL } from "@/lib/erp/labels";
 import type { PayKind } from "@/lib/erp/types";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
@@ -38,8 +38,8 @@ function MoneyPage() {
     initialDataUpdatedAt: q === "" && kind === "all" ? Date.now() : undefined,
   });
   const rows = list.data ?? [];
-  const incoming = rows.filter((r) => r.kind === "in").reduce((s, r) => s + r.amount, 0);
-  const outgoing = rows.filter((r) => r.kind === "out").reduce((s, r) => s + r.amount, 0);
+  const incoming = rows.filter((r) => r.kind === "in").reduce((s, r) => s + toBase(r.amount, r.fxRate), 0);
+  const outgoing = rows.filter((r) => r.kind === "out").reduce((s, r) => s + toBase(r.amount, r.fxRate), 0);
 
   const del = useMutation({
     mutationFn: (id: number) => deletePayment({ data: { id } }),
@@ -161,7 +161,7 @@ function MoneyPage() {
                   )}
                 >
                   {row.kind === "in" ? "+" : "−"}
-                  {money(row.amount)}
+                  {money(row.amount, { currency: row.currency })}
                 </td>
                 <td className="px-2 py-3">
                   <Button
