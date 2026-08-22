@@ -119,17 +119,16 @@ export async function seedIfEmpty(sql: Sql): Promise<void> {
     const fromId = input.from ? whIds[input.from] : null;
     const toId = input.to ? whIds[input.to] : null;
     const partnerId = input.partner ? partnerIds[input.partner] : null;
-    const postedAt = input.status === "posted" ? `${date}T10:00:00Z` : null;
 
     const [doc] = await sql<{ id: number }>`
       insert into documents (
         type, number, doc_date, status,
         warehouse_id, from_warehouse_id, to_warehouse_id,
-        counterparty_id, comment, posted_at
+        counterparty_id, comment
       ) values (
-        ${input.type}, ${input.number}, ${date}, ${input.status},
+        ${input.type}, ${input.number}, ${date}, 'draft',
         ${warehouseId}, ${fromId}, ${toId},
-        ${partnerId}, ${input.comment ?? ""}, ${postedAt}
+        ${partnerId}, ${input.comment ?? ""}
       )
       returning id
     `;
@@ -143,7 +142,15 @@ export async function seedIfEmpty(sql: Sql): Promise<void> {
       `;
     }
 
-    if (input.status !== "posted" || input.type === "order") return;
+    if (input.status !== "posted") return;
+
+    await sql`
+      update documents
+      set status = 'posted', posted_at = ${`${date}T10:00:00Z`}
+      where id = ${doc.id}
+    `;
+
+    if (input.type === "order" || input.type === "invoice") return;
 
     for (const line of input.lines) {
       const productId = skuIds[line.sku];
