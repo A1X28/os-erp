@@ -1030,7 +1030,7 @@ export function DocumentForm({
                 <span>
                   {p.number}
                   <span className="block text-xs text-muted-foreground">
-                    {p.payDate} · {p.method}
+                    {p.payDate} · {p.accountName}
                   </span>
                 </span>
                 <span className="tabular-nums font-medium">{money(p.amount, { currency: p.currency })}</span>
@@ -1052,6 +1052,7 @@ export function DocumentForm({
         partnerId={initial?.counterpartyId}
         documentId={initial?.id}
         suggestedAmount={initial?.dueAmount}
+        currency={currency}
       />
     </div>
   );

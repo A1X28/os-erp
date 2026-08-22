@@ -20,6 +20,9 @@ export function mapDbError(e: unknown): Error {
   }
   if (text.includes("violates check constraint")) {
     if (text.includes("qty")) return new Error("Количество должно быть больше нуля");
+    if (text.includes("money_balance")) {
+      return new Error("Недостаточно денег на счёте — система не даёт уйти в минус");
+    }
     if (text.includes("amount")) return new Error("Сумма строки не сходится с количеством и ценой");
     if (text.includes("type")) return new Error("Неизвестный тип документа");
     if (text.includes("status")) return new Error("Некорректный статус документа");

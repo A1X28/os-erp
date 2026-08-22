@@ -14,7 +14,7 @@ import {
   remainingForFollow,
 } from "./stock";
 import type { Sql } from "@/lib/db";
-import { DOC_TYPE_SHORT, FOLLOW_TO, DOC_TYPE_LABEL, PAY_KIND_LABEL } from "./labels";
+import { DOC_TYPE_SHORT, FOLLOW_TO, DOC_TYPE_LABEL, PAY_KIND_LABEL, PAY_METHOD_LABEL } from "./labels";
 import type {
   DashboardData,
   DocStatus,
@@ -32,6 +32,8 @@ import type {
   PayKind,
   PayMethod,
   Payment,
+  MoneyAccount,
+  MoneyTransfer,
   PeriodKey,
   Product,
   ReportData,
@@ -144,6 +146,8 @@ function mapPayment(r: Record<string, unknown>): Payment {
     documentType: r.document_type == null ? null : (String(r.document_type) as DocType),
     amount: num(r.amount),
     method: String(r.method) as PayMethod,
+    accountId: num(r.account_id),
+    accountName: String(r.account_name ?? PAY_METHOD_LABEL[String(r.method) as PayMethod] ?? ""),
     comment: String(r.comment ?? ""),
     currency: (String(r.currency ?? "RUB") as Currency),
     fxRate: num(r.fx_rate ?? 1) || 1,
@@ -810,11 +814,13 @@ export const getDocument = createServerFn({ method: "GET" })
     const payRows = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
              p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             p.account_id, a.name as account_name,
              c.name as partner_name,
              d.number as document_number, d.type as document_type
       from payments p
       join counterparties c on c.id = p.partner_id
       left join documents d on d.id = p.document_id
+      left join money_accounts a on a.id = p.account_id
       where p.document_id = ${data.id}
          or (${sourceId}::int is not null and p.document_id = ${sourceId})
          or p.document_id in (select s.id from documents s where s.source_id = ${data.id})
@@ -1639,11 +1645,13 @@ export const listPayments = createServerFn({ method: "GET" })
     const rows = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
              p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             p.account_id, a.name as account_name,
              c.name as partner_name,
              d.number as document_number, d.type as document_type
       from payments p
       join counterparties c on c.id = p.partner_id
       left join documents d on d.id = p.document_id
+      left join money_accounts a on a.id = p.account_id
       where (${kind}::text is null or p.kind = ${kind})
         and (${q}::text is null
           or lower(p.number) like ${q}
@@ -1663,13 +1671,17 @@ export const savePayment = createServerFn({ method: "POST" })
       partnerId: z.number(),
       documentId: z.number().nullable().optional(),
       amount: z.number().positive(),
-      method: z.enum(["cash", "bank", "kaspi"]),
+      accountId: z.number(),
       comment: z.string().optional(),
     }),
   )
   .handler(async ({ data, context }): Promise<Payment> => {
     return withTx(async (sql) => {
-    let currency: Currency = "RUB";
+    const acc = await sql<{ id: number; currency: string; kind: string }>`
+      select id, currency, kind from money_accounts where id = ${data.accountId}
+    `;
+    if (!acc[0]) throw new Error("Счёт не найден");
+    let currency = String(acc[0].currency) as Currency;
     let fxRate = 1;
     if (data.documentId) {
       const docs = await lockDocument(sql, data.documentId);
@@ -1689,25 +1701,33 @@ export const savePayment = createServerFn({ method: "POST" })
       }
       currency = String(docs.currency ?? "RUB") as Currency;
       fxRate = num(docs.fx_rate ?? 1) || 1;
+      if (currency !== acc[0].currency) {
+        throw new Error("Валюта счёта должна совпадать с документом");
+      }
     }
     const number = await nextPaymentNumber(sql, data.kind);
     const rows = await sql<Record<string, unknown>>`
-      insert into payments (kind, number, pay_date, partner_id, document_id, amount, method, comment, currency, fx_rate)
+      insert into payments (
+        kind, number, pay_date, partner_id, document_id,
+        amount, method, comment, currency, fx_rate, account_id
+      )
       values (
         ${data.kind}, ${number}, ${data.payDate}, ${data.partnerId},
-        ${data.documentId ?? null}, ${data.amount}, ${data.method}, ${data.comment ?? ""},
-        ${currency}, ${fxRate}
+        ${data.documentId ?? null}, ${data.amount}, ${acc[0].kind}, ${data.comment ?? ""},
+        ${currency}, ${fxRate}, ${data.accountId}
       )
       returning id
     `;
     const created = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
              p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             p.account_id, a.name as account_name,
              c.name as partner_name,
              d.number as document_number, d.type as document_type
       from payments p
       join counterparties c on c.id = p.partner_id
       left join documents d on d.id = p.document_id
+      left join money_accounts a on a.id = p.account_id
       where p.id = ${num(rows[0].id)}
     `;
     return mapPayment(created[0]);
@@ -1721,6 +1741,124 @@ export const deletePayment = createServerFn({ method: "POST" })
     return withTx(async (sql) => {
     await sql`delete from payments where id = ${data.id}`;
     return { ok: true };
+    }, context.userId);
+  });
+
+function mapAccount(r: Record<string, unknown>): MoneyAccount {
+  return {
+    id: num(r.id),
+    kind: String(r.kind) as PayMethod,
+    name: String(r.name),
+    currency: String(r.currency) as Currency,
+    isDefault: Boolean(r.is_default),
+    balance: num(r.balance ?? r.amount),
+  };
+}
+
+export const listAccounts = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<MoneyAccount[]> => {
+    const sql = await withDb();
+    const rows = await sql<Record<string, unknown>>`
+      select a.id, a.kind, a.name, a.currency, a.is_default,
+             coalesce(b.amount, 0) as balance
+      from money_accounts a
+      left join money_balance b on b.account_id = a.id
+      order by a.kind, a.id
+    `;
+    return rows.map(mapAccount);
+  });
+
+export const saveAccount = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      name: z.string().min(1),
+      kind: z.enum(["cash", "bank", "kaspi"]),
+      currency: z.enum(CURRENCIES),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<MoneyAccount> => {
+    return withTx(async (sql) => {
+      const rows = await sql<Record<string, unknown>>`
+        insert into money_accounts (kind, name, currency, is_default)
+        values (${data.kind}, ${data.name.trim()}, ${data.currency}, false)
+        returning id, kind, name, currency, is_default
+      `;
+      await sql`
+        insert into money_balance (account_id, amount) values (${num(rows[0].id)}, 0)
+        on conflict (account_id) do nothing
+      `;
+      return mapAccount({ ...rows[0], balance: 0 });
+    }, context.userId);
+  });
+
+export const listTransfers = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<MoneyTransfer[]> => {
+    const sql = await withDb();
+    const rows = await sql<Record<string, unknown>>`
+      select t.id, t.number, t.pay_date, t.from_id, t.to_id, t.amount, t.comment,
+             f.name as from_name, g.name as to_name, f.currency
+      from money_transfers t
+      join money_accounts f on f.id = t.from_id
+      join money_accounts g on g.id = t.to_id
+      order by t.pay_date desc, t.id desc
+      limit 100
+    `;
+    return rows.map((r) => ({
+      id: num(r.id),
+      number: String(r.number),
+      payDate: String(r.pay_date).slice(0, 10),
+      fromId: num(r.from_id),
+      toId: num(r.to_id),
+      fromName: String(r.from_name),
+      toName: String(r.to_name),
+      amount: num(r.amount),
+      currency: String(r.currency) as Currency,
+      comment: String(r.comment ?? ""),
+    }));
+  });
+
+export const saveTransfer = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      payDate: z.string().min(8),
+      fromId: z.number(),
+      toId: z.number(),
+      amount: z.number().positive(),
+      comment: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      if (data.fromId === data.toId) throw new Error("Счета должны отличаться");
+      await lockNumber(sql, "pay:transfer");
+      const last = await sql<{ number: string }>`
+        select number from money_transfers order by id desc limit 1
+      `;
+      const match = (last[0]?.number ?? "").match(/(\d+)$/);
+      const n = match ? Number(match[1]) + 1 : 1;
+      const number = `ПРВ-${String(n).padStart(4, "0")}`;
+      await sql`
+        insert into money_transfers (number, pay_date, from_id, to_id, amount, comment)
+        values (
+          ${number}, ${data.payDate}, ${data.fromId}, ${data.toId},
+          ${data.amount}, ${data.comment ?? ""}
+        )
+      `;
+      return { ok: true };
+    }, context.userId);
+  });
+
+export const deleteTransfer = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number() }))
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      await sql`delete from money_transfers where id = ${data.id}`;
+      return { ok: true };
     }, context.userId);
   });
 

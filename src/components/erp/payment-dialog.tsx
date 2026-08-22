@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { listPartners, savePayment } from "@/lib/erp/server";
-import { PAY_KIND_LABEL, PAY_METHOD_LABEL } from "@/lib/erp/labels";
-import { todayIso } from "@/lib/erp/format";
-import type { PayKind, PayMethod } from "@/lib/erp/types";
+import { listAccounts, listPartners, savePayment } from "@/lib/erp/server";
+import { PAY_KIND_LABEL } from "@/lib/erp/labels";
+import { money, todayIso } from "@/lib/erp/format";
+import type { Currency, PayKind } from "@/lib/erp/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +30,7 @@ export function PaymentDialog({
   partnerId,
   documentId,
   suggestedAmount,
+  currency,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -37,6 +38,7 @@ export function PaymentDialog({
   partnerId?: number | null;
   documentId?: number | null;
   suggestedAmount?: number;
+  currency?: Currency;
 }) {
   const qc = useQueryClient();
   const [kind, setKind] = useState<PayKind>(defaultKind);
@@ -45,8 +47,19 @@ export function PaymentDialog({
   const [amount, setAmount] = useState(
     suggestedAmount && suggestedAmount > 0 ? String(suggestedAmount) : "",
   );
-  const [method, setMethod] = useState<PayMethod>("kaspi");
+  const [accountId, setAccountId] = useState("");
   const [comment, setComment] = useState("");
+
+  const accounts = useQuery({
+    queryKey: ["accounts"],
+    queryFn: () => listAccounts(),
+    enabled: open,
+  });
+  const accountList = useMemo(() => {
+    const all = accounts.data ?? [];
+    if (!currency) return all;
+    return all.filter((a) => a.currency === currency);
+  }, [accounts.data, currency]);
 
   useEffect(() => {
     if (!open) return;
@@ -54,9 +67,19 @@ export function PaymentDialog({
     setPayDate(todayIso());
     setPartner(partnerId ? String(partnerId) : "");
     setAmount(suggestedAmount && suggestedAmount > 0 ? String(Math.round(suggestedAmount)) : "");
-    setMethod("kaspi");
     setComment("");
   }, [open, defaultKind, partnerId, suggestedAmount]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (accountList.some((a) => String(a.id) === accountId)) return;
+    const kaspi = accountList.find((a) => a.kind === "kaspi");
+    const def = accountList.find((a) => a.isDefault) ?? accountList[0];
+    setAccountId(String((kaspi ?? def)?.id ?? ""));
+  }, [open, accountList, accountId]);
+
+  const acc = accountList.find((a) => String(a.id) === accountId);
+  const cur: Currency = acc?.currency ?? currency ?? "RUB";
 
   const partners = useQuery({
     queryKey: ["partners", "", kind === "out" ? "supplier" : "buyer"],
@@ -76,12 +99,12 @@ export function PaymentDialog({
           partnerId: Number(partner),
           documentId: documentId ?? null,
           amount: Number(amount),
-          method,
+          accountId: Number(accountId),
           comment,
         },
       }),
     onSuccess: (row) => {
-      toast.success(`${row.number} на ${row.amount} ₸`);
+      toast.success(`${row.number} · ${money(row.amount, { currency: row.currency })}`);
       onOpenChange(false);
       void qc.invalidateQueries();
     },
@@ -121,10 +144,10 @@ export function PaymentDialog({
               <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
-              <Label>Сумма, ₸</Label>
+              <Label>Сумма</Label>
               <Input
                 type="number"
-                min={1}
+                min={0.01}
                 step="any"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -148,19 +171,29 @@ export function PaymentDialog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Способ</Label>
-            <Select value={method} onValueChange={(v) => setMethod(v as PayMethod)}>
+            <Label>Счёт</Label>
+            <Select value={accountId} onValueChange={setAccountId}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Касса или банк" />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(PAY_METHOD_LABEL) as PayMethod[]).map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {PAY_METHOD_LABEL[m]}
+                {accountList.map((a) => (
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.name} · {money(a.balance, { currency: a.currency })}
                   </SelectItem>
                 ))}
+                {accountList.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Нет счёта в этой валюте
+                  </SelectItem>
+                ) : null}
               </SelectContent>
             </Select>
+            {kind === "out" && acc ? (
+              <p className="text-xs text-muted-foreground">
+                Доступно {money(acc.balance, { currency: cur })}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label>Комментарий</Label>
@@ -170,7 +203,7 @@ export function PaymentDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Отмена
             </Button>
-            <Button type="submit" disabled={save.isPending || !partner || !amount}>
+            <Button type="submit" disabled={save.isPending || !partner || !amount || !accountId}>
               {save.isPending ? "Провожу…" : "Провести оплату"}
             </Button>
           </DialogFooter>

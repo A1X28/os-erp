@@ -121,9 +121,33 @@ export type Payment = {
   documentType: DocType | null;
   amount: number;
   method: PayMethod;
+  accountId: number;
+  accountName: string;
   comment: string;
   currency: Currency;
   fxRate: number;
+};
+
+export type MoneyAccount = {
+  id: number;
+  kind: PayMethod;
+  name: string;
+  currency: Currency;
+  isDefault: boolean;
+  balance: number;
+};
+
+export type MoneyTransfer = {
+  id: number;
+  number: string;
+  payDate: string;
+  fromId: number;
+  toId: number;
+  fromName: string;
+  toName: string;
+  amount: number;
+  currency: Currency;
+  comment: string;
 };
 
 export type DocumentLine = {
