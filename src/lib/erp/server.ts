@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { withDb } from "./db";
-import { num } from "./format";
+import { num, todayIso } from "./format";
 import { lockDocument, lockNumber, lockStockKeys, withTx } from "./guard";
 import {
   availableQty,
@@ -1496,7 +1496,7 @@ export const followOn = createServerFn({ method: "POST" })
         type, number, doc_date, status,
         warehouse_id, counterparty_id, comment, source_id
       ) values (
-        ${toType}, ${number}, ${String(src.doc_date).slice(0, 10)}, 'draft',
+        ${toType}, ${number}, ${todayIso()}, 'draft',
         ${src.warehouse_id == null ? null : num(src.warehouse_id)},
         ${src.counterparty_id == null ? null : num(src.counterparty_id)},
         ${`Из ${String(src.number)}`}, ${data.id}
