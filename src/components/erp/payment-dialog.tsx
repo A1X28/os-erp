@@ -5,6 +5,7 @@ import { listAccounts, listPartners, savePayment } from "@/lib/erp/server";
 import { PAY_KIND_LABEL } from "@/lib/erp/labels";
 import { money, todayIso } from "@/lib/erp/format";
 import type { Currency, PayKind } from "@/lib/erp/types";
+import { AccountDialog } from "@/components/erp/account-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +50,7 @@ export function PaymentDialog({
   );
   const [accountId, setAccountId] = useState("");
   const [comment, setComment] = useState("");
+  const [accOpen, setAccOpen] = useState(false);
 
   const accounts = useQuery({
     queryKey: ["accounts"],
@@ -68,6 +70,7 @@ export function PaymentDialog({
     setPartner(partnerId ? String(partnerId) : "");
     setAmount(suggestedAmount && suggestedAmount > 0 ? String(Math.round(suggestedAmount)) : "");
     setComment("");
+    setAccOpen(false);
   }, [open, defaultKind, partnerId, suggestedAmount]);
 
   useEffect(() => {
@@ -111,103 +114,128 @@ export function PaymentDialog({
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{PAY_KIND_LABEL[kind]}</DialogTitle>
-        </DialogHeader>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save.mutate();
-          }}
-        >
-          {!documentId ? (
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) setAccOpen(false);
+          onOpenChange(v);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{PAY_KIND_LABEL[kind]}</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save.mutate();
+            }}
+          >
+            {!documentId ? (
+              <div className="space-y-1.5">
+                <Label>Тип</Label>
+                <Select value={kind} onValueChange={(v) => setKind(v as PayKind)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="in">{PAY_KIND_LABEL.in}</SelectItem>
+                    <SelectItem value="out">{PAY_KIND_LABEL.out}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Дата</Label>
+                <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Сумма</Label>
+                <Input
+                  type="number"
+                  min={0.01}
+                  step="any"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label>Тип</Label>
-              <Select value={kind} onValueChange={(v) => setKind(v as PayKind)}>
+              <Label>{kind === "out" ? "Поставщик" : "Покупатель"}</Label>
+              <Select value={partner} onValueChange={setPartner} disabled={Boolean(partnerId)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Контрагент" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="in">{PAY_KIND_LABEL.in}</SelectItem>
-                  <SelectItem value="out">{PAY_KIND_LABEL.out}</SelectItem>
+                  {(partners.data ?? []).map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-          ) : null}
-          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Дата</Label>
-              <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} required />
+              <div className="flex items-center justify-between gap-2">
+                <Label>Счёт</Label>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-primary"
+                  onClick={() => setAccOpen(true)}
+                >
+                  Новый счёт
+                </button>
+              </div>
+              <Select value={accountId} onValueChange={setAccountId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Касса или банк" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accountList.map((a) => (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      {a.name} · {money(a.balance, { currency: a.currency })}
+                    </SelectItem>
+                  ))}
+                  {accountList.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      Нет счёта — создайте
+                    </SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+              {kind === "out" && acc ? (
+                <p className="text-xs text-muted-foreground">
+                  Доступно {money(acc.balance, { currency: cur })}
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
-              <Label>Сумма</Label>
-              <Input
-                type="number"
-                min={0.01}
-                step="any"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                required
-              />
+              <Label>Комментарий</Label>
+              <Input value={comment} onChange={(e) => setComment(e.target.value)} />
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>{kind === "out" ? "Поставщик" : "Покупатель"}</Label>
-            <Select value={partner} onValueChange={setPartner} disabled={Boolean(partnerId)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Контрагент" />
-              </SelectTrigger>
-              <SelectContent>
-                {(partners.data ?? []).map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Счёт</Label>
-            <Select value={accountId} onValueChange={setAccountId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Касса или банк" />
-              </SelectTrigger>
-              <SelectContent>
-                {accountList.map((a) => (
-                  <SelectItem key={a.id} value={String(a.id)}>
-                    {a.name} · {money(a.balance, { currency: a.currency })}
-                  </SelectItem>
-                ))}
-                {accountList.length === 0 ? (
-                  <SelectItem value="none" disabled>
-                    Нет счёта в этой валюте
-                  </SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-            {kind === "out" && acc ? (
-              <p className="text-xs text-muted-foreground">
-                Доступно {money(acc.balance, { currency: cur })}
-              </p>
-            ) : null}
-          </div>
-          <div className="space-y-1.5">
-            <Label>Комментарий</Label>
-            <Input value={comment} onChange={(e) => setComment(e.target.value)} />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Отмена
-            </Button>
-            <Button type="submit" disabled={save.isPending || !partner || !amount || !accountId}>
-              {save.isPending ? "Провожу…" : "Провести оплату"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={save.isPending || !partner || !amount || !accountId}>
+                {save.isPending ? "Провожу…" : "Провести оплату"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <AccountDialog
+        open={accOpen}
+        defaultCurrency={currency}
+        onOpenChange={setAccOpen}
+        onSaved={(row) => {
+          if (!currency || row.currency === currency) setAccountId(String(row.id));
+        }}
+      />
+    </>
   );
 }

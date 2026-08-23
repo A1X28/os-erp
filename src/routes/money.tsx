@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
@@ -10,15 +10,14 @@ import {
   listAccounts,
   listPayments,
   listTransfers,
-  saveAccount,
   saveTransfer,
 } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { formatDate, money, todayIso } from "@/lib/erp/format";
-import { CURRENCIES, PAY_METHODS } from "@/lib/erp/types";
 import { PAY_KIND_LABEL, PAY_METHOD_LABEL } from "@/lib/erp/labels";
-import type { Currency, MoneyAccount, PayKind, PayMethod } from "@/lib/erp/types";
+import type { MoneyAccount, PayKind } from "@/lib/erp/types";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
+import { AccountDialog } from "@/components/erp/account-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -447,113 +446,6 @@ function TransferDialog({
           <DialogFooter>
             <Button type="submit" disabled={mut.isPending || !fromId || !toId}>
               Переместить
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AccountDialog({
-  open,
-  onOpenChange,
-  account,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  account: MoneyAccount | null;
-}) {
-  const qc = useQueryClient();
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<PayMethod>("bank");
-  const [currency, setCurrency] = useState<Currency>("RUB");
-
-  useEffect(() => {
-    if (!open) return;
-    setName(account?.name ?? "");
-    setKind(account?.kind ?? "bank");
-    setCurrency(account?.currency ?? "RUB");
-  }, [open, account]);
-
-  const mut = useMutation({
-    mutationFn: () =>
-      saveAccount({
-        data: account
-          ? { id: account.id, name }
-          : { name, kind, currency },
-      }),
-    onSuccess: () => {
-      toast.success(account ? "Счёт сохранён" : "Счёт создан");
-      onOpenChange(false);
-      setName("");
-      void qc.invalidateQueries({ queryKey: ["accounts"] });
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{account ? "Счёт" : "Новый счёт"}</DialogTitle>
-        </DialogHeader>
-        <form
-          className="grid gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            mut.mutate();
-          }}
-        >
-          <div className="grid gap-1.5">
-            <Label>Название</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Kaspi, касса, расчётный…"
-              required
-            />
-          </div>
-          {account ? (
-            <p className="text-xs text-muted-foreground">
-              {PAY_METHOD_LABEL[account.kind]} · {account.currency}
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label>Тип</Label>
-                <Select value={kind} onValueChange={(v) => setKind(v as PayMethod)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAY_METHODS.map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {PAY_METHOD_LABEL[k]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Валюта</Label>
-                <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CURRENCIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button type="submit" disabled={mut.isPending || !name.trim()}>
-              {account ? "Сохранить" : "Создать"}
             </Button>
           </DialogFooter>
         </form>
