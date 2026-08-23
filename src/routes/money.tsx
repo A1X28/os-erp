@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
 import {
+  deleteAccount,
   deletePayment,
   deleteTransfer,
   listAccounts,
@@ -14,9 +15,9 @@ import {
 } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { formatDate, money, todayIso } from "@/lib/erp/format";
-import { CURRENCIES } from "@/lib/erp/types";
+import { CURRENCIES, PAY_METHODS } from "@/lib/erp/types";
 import { PAY_KIND_LABEL, PAY_METHOD_LABEL } from "@/lib/erp/labels";
-import type { Currency, PayKind, PayMethod } from "@/lib/erp/types";
+import type { Currency, MoneyAccount, PayKind, PayMethod } from "@/lib/erp/types";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,7 @@ function MoneyPage() {
   );
   const [moveOpen, setMoveOpen] = useState(false);
   const [accOpen, setAccOpen] = useState(false);
+  const [editing, setEditing] = useState<MoneyAccount | null>(null);
   const qc = useQueryClient();
 
   const list = useQuery({
@@ -103,17 +105,31 @@ function MoneyPage() {
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Не удалось отменить"),
   });
+  const delAcc = useMutation({
+    mutationFn: (id: number) => deleteAccount({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Счёт удалён");
+      void qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Не удалось удалить"),
+  });
 
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl tracking-tight">Деньги</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Касса, банк, Kaspi</p>
+          <p className="mt-1 text-sm text-muted-foreground">Свои кассы и банки</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setAccOpen(true)}>
-            Счёт
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditing(null);
+              setAccOpen(true);
+            }}
+          >
+            Новый счёт
           </Button>
           <Button variant="outline" onClick={() => setMoveOpen(true)}>
             Переместить
@@ -125,18 +141,57 @@ function MoneyPage() {
         </div>
       </div>
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {accs.map((a) => (
-          <div key={a.id} className="rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
-            <p className="text-xs text-muted-foreground">
-              {a.name} · {PAY_METHOD_LABEL[a.kind]}
-            </p>
-            <p className="mt-1 font-display text-2xl tabular-nums tracking-tight">
-              {money(a.balance, { currency: a.currency })}
-            </p>
-          </div>
-        ))}
-      </div>
+      {accs.length === 0 ? (
+        <div className="mb-4 rounded-xl bg-card px-5 py-8 text-center shadow-[var(--shadow-border)]">
+          <p className="text-sm text-muted-foreground">
+            Добавьте кассу или банк — как они у вас называются. Kaspi, расчётный, наличные.
+          </p>
+          <Button
+            className="mt-4"
+            onClick={() => {
+              setEditing(null);
+              setAccOpen(true);
+            }}
+          >
+            Новый счёт
+          </Button>
+        </div>
+      ) : (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {accs.map((a) => (
+            <div key={a.id} className="rounded-xl bg-card p-4 shadow-[var(--shadow-border)]">
+              <p className="font-medium">{a.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {PAY_METHOD_LABEL[a.kind]} · {a.currency}
+              </p>
+              <p className="mt-2 font-display text-2xl tabular-nums tracking-tight">
+                {money(a.balance, { currency: a.currency })}
+              </p>
+              <div className="mt-2 flex gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditing(a);
+                    setAccOpen(true);
+                  }}
+                >
+                  Изменить
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => delAcc.mutate(a.id)}
+                >
+                  Удалить
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="mb-4 flex flex-col gap-3">
         <div className="relative max-w-md">
@@ -276,7 +331,14 @@ function MoneyPage() {
         defaultKind={payOpen ?? "in"}
       />
       <TransferDialog open={moveOpen} onOpenChange={setMoveOpen} />
-      <AccountDialog open={accOpen} onOpenChange={setAccOpen} />
+      <AccountDialog
+        open={accOpen}
+        account={editing}
+        onOpenChange={(v) => {
+          setAccOpen(v);
+          if (!v) setEditing(null);
+        }}
+      />
     </div>
   );
 }
@@ -396,18 +458,33 @@ function TransferDialog({
 function AccountDialog({
   open,
   onOpenChange,
+  account,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  account: MoneyAccount | null;
 }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<PayMethod>("bank");
   const [currency, setCurrency] = useState<Currency>("RUB");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(account?.name ?? "");
+    setKind(account?.kind ?? "bank");
+    setCurrency(account?.currency ?? "RUB");
+  }, [open, account]);
+
   const mut = useMutation({
-    mutationFn: () => saveAccount({ data: { name, kind, currency } }),
+    mutationFn: () =>
+      saveAccount({
+        data: account
+          ? { id: account.id, name }
+          : { name, kind, currency },
+      }),
     onSuccess: () => {
-      toast.success("Счёт создан");
+      toast.success(account ? "Счёт сохранён" : "Счёт создан");
       onOpenChange(false);
       setName("");
       void qc.invalidateQueries({ queryKey: ["accounts"] });
@@ -418,7 +495,7 @@ function AccountDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Новый счёт</DialogTitle>
+          <DialogTitle>{account ? "Счёт" : "Новый счёт"}</DialogTitle>
         </DialogHeader>
         <form
           className="grid gap-3"
@@ -429,43 +506,54 @@ function AccountDialog({
         >
           <div className="grid gap-1.5">
             <Label>Название</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Kaspi, касса, расчётный…"
+              required
+            />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>Тип</Label>
-              <Select value={kind} onValueChange={(v) => setKind(v as PayMethod)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(PAY_METHOD_LABEL) as PayMethod[]).map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {PAY_METHOD_LABEL[k]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {account ? (
+            <p className="text-xs text-muted-foreground">
+              {PAY_METHOD_LABEL[account.kind]} · {account.currency}
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label>Тип</Label>
+                <Select value={kind} onValueChange={(v) => setKind(v as PayMethod)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAY_METHODS.map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {PAY_METHOD_LABEL[k]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Валюта</Label>
+                <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="grid gap-1.5">
-              <Label>Валюта</Label>
-              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          )}
           <DialogFooter>
-            <Button type="submit" disabled={mut.isPending}>
-              Создать
+            <Button type="submit" disabled={mut.isPending || !name.trim()}>
+              {account ? "Сохранить" : "Создать"}
             </Button>
           </DialogFooter>
         </form>

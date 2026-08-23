@@ -73,9 +73,8 @@ export function PaymentDialog({
   useEffect(() => {
     if (!open) return;
     if (accountList.some((a) => String(a.id) === accountId)) return;
-    const kaspi = accountList.find((a) => a.kind === "kaspi");
     const def = accountList.find((a) => a.isDefault) ?? accountList[0];
-    setAccountId(String((kaspi ?? def)?.id ?? ""));
+    setAccountId(String(def?.id ?? ""));
   }, [open, accountList, accountId]);
 
   const acc = accountList.find((a) => String(a.id) === accountId);

@@ -89,9 +89,8 @@ export const PAY_KIND_LABEL: Record<PayKind, string> = {
 };
 
 export const PAY_METHOD_LABEL: Record<PayMethod, string> = {
-  cash: "Наличные",
+  cash: "Касса",
   bank: "Банк",
-  kaspi: "Kaspi",
 };
 
 export const BUY_STEPS = [

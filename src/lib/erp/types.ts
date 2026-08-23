@@ -17,7 +17,8 @@ export type DocStatus = "draft" | "posted";
 export type PartnerKind = "buyer" | "supplier" | "both";
 export type PeriodKey = "month" | "30d" | "quarter";
 export type PayKind = "in" | "out";
-export type PayMethod = "cash" | "bank" | "kaspi";
+export const PAY_METHODS = ["cash", "bank"] as const;
+export type PayMethod = (typeof PAY_METHODS)[number];
 export const CURRENCIES = ["RUB", "EUR", "USD", "KZT"] as const;
 export type Currency = (typeof CURRENCIES)[number];
 

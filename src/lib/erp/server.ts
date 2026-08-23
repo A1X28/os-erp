@@ -1764,7 +1764,7 @@ export const listAccounts = createServerFn({ method: "GET" })
              coalesce(b.amount, 0) as balance
       from money_accounts a
       left join money_balance b on b.account_id = a.id
-      order by a.kind, a.id
+      order by a.kind, a.name, a.id
     `;
     return rows.map(mapAccount);
   });
@@ -1773,13 +1773,28 @@ export const saveAccount = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(
     z.object({
+      id: z.number().optional(),
       name: z.string().min(1),
-      kind: z.enum(["cash", "bank", "kaspi"]),
-      currency: z.enum(CURRENCIES),
+      kind: z.enum(["cash", "bank"]).optional(),
+      currency: z.enum(CURRENCIES).optional(),
     }),
   )
   .handler(async ({ data, context }): Promise<MoneyAccount> => {
     return withTx(async (sql) => {
+      if (data.id) {
+        const rows = await sql<Record<string, unknown>>`
+          update money_accounts
+             set name = ${data.name.trim()}
+           where id = ${data.id}
+          returning id, kind, name, currency, is_default
+        `;
+        if (!rows[0]) throw new Error("Счёт не найден");
+        const bal = await sql<{ amount: unknown }>`
+          select coalesce(amount, 0) as amount from money_balance where account_id = ${data.id}
+        `;
+        return mapAccount({ ...rows[0], balance: bal[0]?.amount ?? 0 });
+      }
+      if (!data.kind || !data.currency) throw new Error("Укажите тип и валюту");
       const rows = await sql<Record<string, unknown>>`
         insert into money_accounts (kind, name, currency, is_default)
         values (${data.kind}, ${data.name.trim()}, ${data.currency}, false)
@@ -1792,6 +1807,17 @@ export const saveAccount = createServerFn({ method: "POST" })
       return mapAccount({ ...rows[0], balance: 0 });
     }, context.userId);
   });
+
+export const deleteAccount = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number() }))
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      await sql`delete from money_accounts where id = ${data.id}`;
+      return { ok: true };
+    }, context.userId);
+  });
+
 
 export const listTransfers = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
