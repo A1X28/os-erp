@@ -1,18 +1,34 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { getPartnerSettle } from "@/lib/erp/server";
+import { toast } from "sonner";
+import { deleteOpeningDebt, getPartnerSettle, saveOpeningDebt } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
 import { formatDate, money, todayIso } from "@/lib/erp/format";
 import { yearStartIso } from "@/lib/erp/settle";
 import { KIND_LABEL } from "@/lib/erp/labels";
 import type { Currency } from "@/lib/erp/types";
+import { CURRENCIES } from "@/lib/erp/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PaymentDialog } from "@/components/erp/payment-dialog";
 import { PartnerDialog } from "@/components/erp/partner-dialog";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/partners/$id")({
   loader: ({ params }) =>
@@ -27,6 +43,7 @@ function PartnerCardPage() {
   const qc = useQueryClient();
   const [pay, setPay] = useState<"in" | "out" | null>(null);
   const [editing, setEditing] = useState(false);
+  const [debtOpen, setDebtOpen] = useState(false);
   const [from, setFrom] = useState(() => yearStartIso(todayIso()));
   const [to, setTo] = useState(() => todayIso());
 
@@ -72,6 +89,9 @@ function PartnerCardPage() {
             >
               Акт сверки
             </Link>
+          </Button>
+          <Button variant="outline" onClick={() => setDebtOpen(true)}>
+            Начальный долг
           </Button>
           <Button variant="outline" onClick={() => setPay("out")}>
             Оплатить
@@ -152,7 +172,7 @@ function PartnerCardPage() {
             </thead>
             <tbody>
               {data.entries.map((e) => (
-                <tr key={`${e.docId ?? "p"}-${e.payId ?? e.number}-${e.date}`} className="border-b border-border last:border-0">
+                <tr key={`${e.docId ?? "p"}-${e.payId ?? e.debtId ?? e.number}-${e.date}`} className="border-b border-border last:border-0">
                   <td className="px-4 py-2.5 text-muted-foreground">{formatDate(e.date)}</td>
                   <td className="px-3 py-2.5">
                     {e.docId ? (
@@ -168,6 +188,23 @@ function PartnerCardPage() {
                       <span>
                         <span className="font-medium">{e.number}</span>
                         <span className="block text-xs text-muted-foreground">{e.title}</span>
+                        {e.debtId ? (
+                          <button
+                            type="button"
+                            className="mt-0.5 text-xs text-destructive"
+                            onClick={() =>
+                              deleteOpeningDebt({ data: { id: e.debtId! } })
+                                .then(() => {
+                                  toast.success("Начальный долг удалён");
+                                  void qc.invalidateQueries({ queryKey: ["partner-settle", partnerId] });
+                                  void qc.invalidateQueries({ queryKey: ["partners"] });
+                                })
+                                .catch((err: Error) => toast.error(err.message))
+                            }
+                          >
+                            Удалить
+                          </button>
+                        ) : null}
                       </span>
                     )}
                   </td>
@@ -213,6 +250,11 @@ function PartnerCardPage() {
         defaultKind={pay ?? "in"}
         partnerId={p.id}
       />
+      <OpeningDebtDialog
+        open={debtOpen}
+        partnerId={p.id}
+        onOpenChange={setDebtOpen}
+      />
     </div>
   );
 }
@@ -253,3 +295,122 @@ function BalanceCard({
     </div>
   );
 }
+
+function OpeningDebtDialog({
+  open,
+  onOpenChange,
+  partnerId,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  partnerId: number;
+}) {
+  const qc = useQueryClient();
+  const [side, setSide] = useState<"receivable" | "payable">("receivable");
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<Currency>("RUB");
+  const [openDate, setOpenDate] = useState(todayIso());
+  const [comment, setComment] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setSide("receivable");
+    setAmount("");
+    setCurrency("RUB");
+    setOpenDate(todayIso());
+    setComment("");
+  }, [open]);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      saveOpeningDebt({
+        data: {
+          partnerId,
+          openDate,
+          side,
+          amount: Number(amount),
+          currency,
+          comment,
+        },
+      }),
+    onSuccess: () => {
+      toast.success("Начальный долг записан");
+      onOpenChange(false);
+      void qc.invalidateQueries({ queryKey: ["partner-settle", partnerId] });
+      void qc.invalidateQueries({ queryKey: ["partners"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Начальный долг</DialogTitle>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            mut.mutate();
+          }}
+        >
+          <div className="grid gap-1.5">
+            <Label>Сторона</Label>
+            <Select value={side} onValueChange={(v) => setSide(v as "receivable" | "payable")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="receivable">Нам должны</SelectItem>
+                <SelectItem value="payable">Мы должны</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Дата</Label>
+              <Input type="date" value={openDate} onChange={(e) => setOpenDate(e.target.value)} required />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Валюта</Label>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CURRENCIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Сумма</Label>
+            <Input
+              type="number"
+              min={0.01}
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Комментарий</Label>
+            <Input value={comment} onChange={(e) => setComment(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={mut.isPending || !amount}>
+              Записать
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

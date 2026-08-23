@@ -134,13 +134,18 @@ function mapPartner(r: Record<string, unknown>): Partner {
 }
 
 function mapPayment(r: Record<string, unknown>): Payment {
+  const origin = r.origin === "opening" ? "opening" : "payment";
   return {
     id: num(r.id),
     kind: String(r.kind) as PayKind,
+    origin,
     number: String(r.number),
     payDate: String(r.pay_date).slice(0, 10),
-    partnerId: num(r.partner_id),
-    partnerName: String(r.partner_name ?? ""),
+    partnerId: r.partner_id == null ? null : num(r.partner_id),
+    partnerName:
+      origin === "opening"
+        ? "Начальный остаток"
+        : String(r.partner_name ?? ""),
     documentId: r.document_id == null ? null : num(r.document_id),
     documentNumber: r.document_number == null ? null : String(r.document_number),
     documentType: r.document_type == null ? null : (String(r.document_type) as DocType),
@@ -448,7 +453,7 @@ flags as (
   group by partner_id, root
 ),
 docs as (
-  select p.partner_id, p.dt, p.id as doc_id, null::int as pay_id, p.number, p.type,
+  select p.partner_id, p.dt, p.id as doc_id, null::int as pay_id, null::int as debt_id, p.number, p.type,
          p.currency, p.fx_rate,
          case when p.type in ('sale', 'invoice', 'sale_return') then 'receivable' else 'payable' end as side,
          case when p.type in ('sale_return', 'purchase_return') then -p.amount else p.amount end as amount
@@ -459,15 +464,24 @@ docs as (
      or (p.type = 'bill' and not f.has_purchase)
 ),
 pays as (
-  select p.partner_id, p.pay_date as dt, null::int as doc_id, p.id as pay_id, p.number,
+  select p.partner_id, p.pay_date as dt, null::int as doc_id, p.id as pay_id, null::int as debt_id, p.number,
          p.kind as type, p.currency, p.fx_rate,
          case when p.kind = 'in' then 'receivable' else 'payable' end as side,
          -p.amount as amount
   from payments p
+  where p.partner_id is not null
+),
+debts as (
+  select o.partner_id, o.open_date as dt, null::int as doc_id, null::int as pay_id, o.id as debt_id, o.number,
+         'opening_debt'::text as type, o.currency, o.fx_rate,
+         o.side, o.amount
+  from opening_debts o
 )
 select * from docs
 union all
 select * from pays
+union all
+select * from debts
 `;
 
 export const listPartners = createServerFn({ method: "GET" })
@@ -598,15 +612,19 @@ export const getPartnerSettle = createServerFn({ method: "GET" })
       else cur.payable += amount;
       byCur.set(currency, cur);
       const type = String(r.type);
-      const title = isDocType(type)
-        ? DOC_TYPE_LABEL[type]
-        : PAY_KIND_LABEL[type as PayKind] ?? type;
+      const title =
+        type === "opening_debt"
+          ? "Начальный долг"
+          : isDocType(type)
+            ? DOC_TYPE_LABEL[type]
+            : PAY_KIND_LABEL[type as PayKind] ?? type;
       return {
         date: String(r.dt).slice(0, 10),
         number: String(r.number),
         title,
         docId: r.doc_id == null ? null : num(r.doc_id),
         payId: r.pay_id == null ? null : num(r.pay_id),
+        debtId: r.debt_id == null ? null : num(r.debt_id),
         currency,
         amount,
         side,
@@ -947,15 +965,20 @@ export const saveDocument = createServerFn({ method: "POST" })
     } else if (!data.warehouseId) {
       throw new Error("Укажите склад");
     }
-    if (data.type === "inventory") {
+    if (data.type === "inventory" || data.type === "opening") {
       const seen = new Set<number>();
       for (const line of data.lines) {
         if (seen.has(line.productId)) {
-          throw new Error("В инвентаризации товар только один раз");
+          throw new Error(
+            data.type === "opening"
+              ? "В начальных остатках товар только один раз"
+              : "В инвентаризации товар только один раз",
+          );
         }
         seen.add(line.productId);
       }
     }
+    const counterpartyId = data.type === "opening" ? null : (data.counterpartyId ?? null);
 
     let id = data.id;
     if (id) {
@@ -971,7 +994,7 @@ export const saveDocument = createServerFn({ method: "POST" })
           warehouse_id = ${data.warehouseId ?? null},
           from_warehouse_id = ${data.fromWarehouseId ?? null},
           to_warehouse_id = ${data.toWarehouseId ?? null},
-          counterparty_id = ${data.counterpartyId ?? null},
+          counterparty_id = ${counterpartyId},
           comment = ${data.comment ?? ""},
           currency = ${data.currency ?? "RUB"},
           fx_rate = ${data.fxRate ?? 1}
@@ -988,7 +1011,7 @@ export const saveDocument = createServerFn({ method: "POST" })
         ) values (
           ${data.type}, ${number}, ${data.docDate}, 'draft',
           ${data.warehouseId ?? null}, ${data.fromWarehouseId ?? null},
-          ${data.toWarehouseId ?? null}, ${data.counterpartyId ?? null},
+          ${data.toWarehouseId ?? null}, ${counterpartyId},
           ${data.comment ?? ""}, ${data.currency ?? "RUB"}, ${data.fxRate ?? 1}
         )
         returning id
@@ -1047,7 +1070,7 @@ export const postDocument = createServerFn({ method: "POST" })
     const toId = d.to_warehouse_id == null ? null : num(d.to_warehouse_id);
     const sourceId = d.source_id == null ? null : num(d.source_id);
 
-    if ((type === "purchase" || type === "sale_return") && !warehouseId) throw new Error("Не указан склад");
+    if ((type === "purchase" || type === "sale_return" || type === "opening") && !warehouseId) throw new Error("Не указан склад");
 
     if (type === "sale" || type === "writeoff" || type === "purchase_return") {
       if (!warehouseId) throw new Error("Не указан склад");
@@ -1104,7 +1127,7 @@ export const postDocument = createServerFn({ method: "POST" })
       }
     }
 
-    if (type === "inventory") {
+    if (type === "inventory" || type === "opening") {
       if (!warehouseId) throw new Error("Не указан склад");
       await lockStockKeys(
         sql,
@@ -1118,7 +1141,7 @@ export const postDocument = createServerFn({ method: "POST" })
 
     for (const line of lines) {
       const qty = num(line.qty);
-      if (type === "purchase" || type === "sale_return") {
+      if (type === "purchase" || type === "sale_return" || type === "opening") {
         await sql`
           insert into stock_moves (document_id, product_id, warehouse_id, qty)
           values (${data.id}, ${line.product_id}, ${warehouseId}, ${qty})
@@ -1170,7 +1193,7 @@ export const unpostDocument = createServerFn({ method: "POST" })
       where l.document_id = ${data.id}
     `;
 
-    if (type === "purchase" || type === "sale" || type === "writeoff" || type === "inventory") {
+    if (type === "purchase" || type === "sale" || type === "writeoff" || type === "inventory" || type === "opening") {
       const warehouseId = num(d.warehouse_id);
       await lockStockKeys(
         sql,
@@ -1216,7 +1239,7 @@ export const unpostDocument = createServerFn({ method: "POST" })
       }
     }
 
-    if (type === "purchase") {
+    if (type === "purchase" || type === "opening") {
       const warehouseId = num(d.warehouse_id);
       const missing: string[] = [];
       for (const line of lines) {
@@ -1644,7 +1667,7 @@ export const listPayments = createServerFn({ method: "GET" })
     const q = data.q?.trim() ? `%${data.q.trim().toLowerCase()}%` : null;
     const rows = await sql<Record<string, unknown>>`
       select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
-             p.amount, p.method, p.comment, p.currency, p.fx_rate,
+             p.amount, p.method, p.comment, p.currency, p.fx_rate, p.origin,
              p.account_id, a.name as account_name,
              c.name as partner_name,
              d.number as document_number, d.type as document_type
@@ -1655,7 +1678,8 @@ export const listPayments = createServerFn({ method: "GET" })
       where (${kind}::text is null or p.kind = ${kind})
         and (${q}::text is null
           or lower(p.number) like ${q}
-          or lower(c.name) like ${q})
+          or lower(coalesce(c.name, '')) like ${q}
+          or lower(coalesce(a.name, '')) like ${q})
       order by p.pay_date desc, p.id desc
       limit 200
     `;
@@ -1741,6 +1765,115 @@ export const deletePayment = createServerFn({ method: "POST" })
     return withTx(async (sql) => {
     await sql`delete from payments where id = ${data.id}`;
     return { ok: true };
+    }, context.userId);
+  });
+
+async function nextOpeningCashNumber(sql: Sql): Promise<string> {
+  await lockNumber(sql, "pay:opening");
+  const rows = await sql<{ number: string }>`
+    select number from payments where origin = 'opening' order by id desc limit 1
+  `;
+  const last = rows[0]?.number ?? "";
+  const match = last.match(/(\d+)$/);
+  const n = match ? Number(match[1]) + 1 : 1;
+  return `ОСТК-${String(n).padStart(4, "0")}`;
+}
+
+export const saveOpeningCash = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      payDate: z.string().min(8),
+      accountId: z.number(),
+      amount: z.number().positive(),
+      comment: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<Payment> => {
+    return withTx(async (sql) => {
+      const acc = await sql<{ id: number; currency: string; kind: string }>`
+        select id, currency, kind from money_accounts where id = ${data.accountId}
+      `;
+      if (!acc[0]) throw new Error("Счёт не найден");
+      const number = await nextOpeningCashNumber(sql);
+      const rows = await sql<Record<string, unknown>>`
+        insert into payments (
+          kind, origin, number, pay_date, partner_id, document_id,
+          amount, method, comment, currency, fx_rate, account_id
+        )
+        values (
+          'in', 'opening', ${number}, ${data.payDate}, null, null,
+          ${data.amount}, ${acc[0].kind}, ${data.comment ?? ""},
+          ${acc[0].currency}, 1, ${data.accountId}
+        )
+        returning id
+      `;
+      const created = await sql<Record<string, unknown>>`
+        select p.id, p.kind, p.number, p.pay_date, p.partner_id, p.document_id,
+               p.amount, p.method, p.comment, p.currency, p.fx_rate, p.origin,
+               p.account_id, a.name as account_name,
+               null::text as partner_name,
+               null::text as document_number, null::text as document_type
+        from payments p
+        left join money_accounts a on a.id = p.account_id
+        where p.id = ${num(rows[0].id)}
+      `;
+      return mapPayment(created[0]);
+    }, context.userId);
+  });
+
+async function nextOpeningDebtNumber(sql: Sql): Promise<string> {
+  await lockNumber(sql, "debt:opening");
+  const rows = await sql<{ number: string }>`
+    select number from opening_debts order by id desc limit 1
+  `;
+  const last = rows[0]?.number ?? "";
+  const match = last.match(/(\d+)$/);
+  const n = match ? Number(match[1]) + 1 : 1;
+  return `ДОЛГ-${String(n).padStart(4, "0")}`;
+}
+
+export const saveOpeningDebt = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(
+    z.object({
+      partnerId: z.number(),
+      openDate: z.string().min(8),
+      side: z.enum(["receivable", "payable"]),
+      amount: z.number().positive(),
+      currency: z.enum(CURRENCIES),
+      comment: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      const partner = await sql<{ id: number }>`
+        select id from counterparties where id = ${data.partnerId}
+      `;
+      if (!partner[0]) throw new Error("Контрагент не найден");
+      const number = await nextOpeningDebtNumber(sql);
+      await sql`
+        insert into opening_debts (
+          number, open_date, partner_id, side, amount, currency, fx_rate, comment
+        ) values (
+          ${number}, ${data.openDate}, ${data.partnerId}, ${data.side},
+          ${data.amount}, ${data.currency}, 1, ${data.comment ?? ""}
+        )
+      `;
+      return { ok: true };
+    }, context.userId);
+  });
+
+export const deleteOpeningDebt = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ id: z.number() }))
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    return withTx(async (sql) => {
+      const rows = await sql<{ id: number }>`
+        delete from opening_debts where id = ${data.id} returning id
+      `;
+      if (!rows[0]) throw new Error("Начальный долг не найден");
+      return { ok: true };
     }, context.userId);
   });
 
@@ -1917,7 +2050,7 @@ export const followOn = createServerFn({ method: "POST" })
       `;
       if (draft[0]) return { id: draft[0].id };
     }
-    if (toType !== "transfer" && toType !== "writeoff" && toType !== "inventory" && !src.counterparty_id) {
+    if (toType !== "transfer" && toType !== "writeoff" && toType !== "inventory" && toType !== "opening" && !src.counterparty_id) {
       throw new Error("Укажите контрагента");
     }
     if (toType !== "transfer" && !src.warehouse_id) {

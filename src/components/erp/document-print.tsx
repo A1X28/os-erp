@@ -27,7 +27,7 @@ function oursLine(ours: CompanyProfile) {
   });
 }
 
-const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff", "sale_return", "purchase_return", "inventory"];
+const WAYBILL: DocType[] = ["sale", "purchase", "transfer", "writeoff", "sale_return", "purchase_return", "inventory", "opening"];
 const BILL: DocType[] = ["invoice", "bill"];
 
 export function DocumentPrint({
@@ -92,7 +92,7 @@ export function DocumentPrint({
       </header>
 
       <dl className="mt-4 grid gap-2 text-sm">
-        {doc.type !== "transfer" && doc.type !== "writeoff" ? (
+        {doc.type !== "transfer" && doc.type !== "writeoff" && doc.type !== "opening" && doc.type !== "inventory" ? (
           <>
             <div>
               <dt className="text-xs text-neutral-500">Поставщик</dt>

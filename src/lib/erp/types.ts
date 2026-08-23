@@ -10,6 +10,7 @@ export const DOC_TYPES = [
   "sale_return",
   "purchase_return",
   "inventory",
+  "opening",
 ] as const;
 
 export type DocType = (typeof DOC_TYPES)[number];
@@ -84,6 +85,7 @@ export type SettleEntry = {
   title: string;
   docId: number | null;
   payId: number | null;
+  debtId: number | null;
   currency: Currency;
   amount: number;
   side: "receivable" | "payable";
@@ -113,9 +115,10 @@ export type Me = {
 export type Payment = {
   id: number;
   kind: PayKind;
+  origin: "payment" | "opening";
   number: string;
   payDate: string;
-  partnerId: number;
+  partnerId: number | null;
   partnerName: string;
   documentId: number | null;
   documentNumber: string | null;

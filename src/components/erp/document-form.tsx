@@ -155,6 +155,7 @@ export function DocumentForm({
 
   const [type, setType] = useState<DocType>(initial?.type ?? defaultType);
   const isInventory = type === "inventory";
+  const isOpening = type === "opening";
   const [docDate, setDocDate] = useState(initial?.docDate ?? todayIso());
   const [warehouseId, setWarehouseId] = useState<string>(
     initial?.warehouseId ? String(initial.warehouseId) : "",
@@ -270,7 +271,8 @@ export function DocumentForm({
             type === "purchase" ||
             type === "writeoff" ||
             type === "transfer" ||
-            type === "inventory"
+            type === "inventory" ||
+            type === "opening"
             ? "Документ проведён, остатки обновлены"
             : "Документ проведён"
           : "Черновик сохранён",
@@ -287,7 +289,7 @@ export function DocumentForm({
     onSuccess: () => {
       invalidateAll();
       toast.success(
-        type === "sale" || type === "purchase" || type === "writeoff" || type === "transfer"
+        type === "sale" || type === "purchase" || type === "writeoff" || type === "transfer" || type === "inventory" || type === "opening"
           ? "Документ проведён, остатки обновлены"
           : "Документ проведён",
       );
@@ -372,7 +374,11 @@ export function DocumentForm({
             Документ
           </p>
           <h1 className="font-display text-3xl tracking-tight">
-            {initial ? initial.number : `Новая ${DOC_TYPE_LABEL[type].toLowerCase()}`}
+            {initial
+              ? initial.number
+              : isOpening
+                ? "Новые начальные остатки"
+                : `Новая ${DOC_TYPE_LABEL[type].toLowerCase()}`}
           </h1>
           {initial ? (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -446,7 +452,7 @@ export function DocumentForm({
               disabled={locked}
             />
           </div>
-          {isInventory ? null : (
+          {isInventory || isOpening ? null : (
           <>
           <div className="grid gap-1.5">
             <Label>Валюта</Label>
@@ -588,7 +594,7 @@ export function DocumentForm({
       <div className="mt-4 overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <h2 className="font-display text-lg">
-            {isInventory ? "Пересчёт" : "Строки"}
+            {isInventory ? "Пересчёт" : isOpening ? "Остаток" : "Строки"}
           </h2>
           {!locked ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -631,6 +637,10 @@ export function DocumentForm({
                       toast.error("Этот товар уже в акте");
                       return prev;
                     }
+                    if (isOpening && prev.some((l) => l.productId === p.id)) {
+                      toast.error("Этот товар уже в ведомости");
+                      return prev;
+                    }
                     return [
                       ...prev,
                       {
@@ -666,7 +676,7 @@ export function DocumentForm({
                 ) : (
                   <>
                     <th className="px-3 py-2 font-medium">Кол-во</th>
-                    <th className="px-3 py-2 font-medium">Цена</th>
+                    <th className="px-3 py-2 font-medium">{isOpening ? "Себестоимость" : "Цена"}</th>
                     <th className="px-3 py-2 text-right font-medium">Сумма</th>
                   </>
                 )}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
@@ -10,6 +10,7 @@ import {
   listAccounts,
   listPayments,
   listTransfers,
+  saveOpeningCash,
   saveTransfer,
 } from "@/lib/erp/server";
 import { orGuest } from "@/lib/erp/safe";
@@ -62,6 +63,7 @@ function MoneyPage() {
   );
   const [moveOpen, setMoveOpen] = useState(false);
   const [accOpen, setAccOpen] = useState(false);
+  const [cashOpen, setCashOpen] = useState(false);
   const [editing, setEditing] = useState<MoneyAccount | null>(null);
   const qc = useQueryClient();
 
@@ -129,6 +131,9 @@ function MoneyPage() {
             }}
           >
             Новый счёт
+          </Button>
+          <Button variant="outline" onClick={() => setCashOpen(true)}>
+            Начальный остаток
           </Button>
           <Button variant="outline" onClick={() => setMoveOpen(true)}>
             Переместить
@@ -250,7 +255,7 @@ function MoneyPage() {
                 <td className="px-4 py-3">
                   {row.partnerName}
                   <span className="block text-xs text-muted-foreground">
-                    {PAY_KIND_LABEL[row.kind]}
+                    {row.origin === "opening" ? "Начальный остаток" : PAY_KIND_LABEL[row.kind]}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -338,6 +343,7 @@ function MoneyPage() {
           if (!v) setEditing(null);
         }}
       />
+      <OpeningCashDialog open={cashOpen} onOpenChange={setCashOpen} />
     </div>
   );
 }
@@ -453,3 +459,116 @@ function TransferDialog({
     </Dialog>
   );
 }
+
+function OpeningCashDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const [accountId, setAccountId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [payDate, setPayDate] = useState(todayIso());
+  const [comment, setComment] = useState("");
+  const accounts = useQuery({
+    queryKey: ["accounts"],
+    queryFn: () => listAccounts(),
+    enabled: open,
+  });
+  const accs = accounts.data ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+    setPayDate(todayIso());
+    setAmount("");
+    setComment("");
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (accountId && accs.some((a) => String(a.id) === accountId)) return;
+    const def = accs.find((a) => a.isDefault) ?? accs[0];
+    setAccountId(String(def?.id ?? ""));
+  }, [open, accs, accountId]);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      saveOpeningCash({
+        data: {
+          payDate,
+          accountId: Number(accountId),
+          amount: Number(amount),
+          comment,
+        },
+      }),
+    onSuccess: (row) => {
+      toast.success(`${row.number} · ${money(row.amount, { currency: row.currency })}`);
+      onOpenChange(false);
+      void qc.invalidateQueries({ queryKey: ["payments"] });
+      void qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Начальный остаток</DialogTitle>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            mut.mutate();
+          }}
+        >
+          <div className="grid gap-1.5">
+            <Label>Счёт</Label>
+            <Select value={accountId} onValueChange={setAccountId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Касса или банк" />
+              </SelectTrigger>
+              <SelectContent>
+                {accs.map((a) => (
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.name} · {a.currency}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Дата</Label>
+              <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} required />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Сумма</Label>
+              <Input
+                type="number"
+                min={0.01}
+                step="any"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Комментарий</Label>
+            <Input value={comment} onChange={(e) => setComment(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={mut.isPending || !accountId || !amount}>
+              Записать
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
